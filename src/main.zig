@@ -17,7 +17,12 @@ pub fn main() !void {
 
         try stdout.print("accepted new connection", .{});
 
-        _ = try connection.stream.writer().write("+PONG\r\n");
+        const reader = connection.stream.reader();
+
+        var buffer: [1024]u8 = undefined;
+        while (try reader.read(&buffer) > 0) {
+            _ = try connection.stream.writer().write("+PONG\r\n");
+        }
 
         connection.stream.close();
     }
