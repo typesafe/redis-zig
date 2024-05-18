@@ -15,15 +15,18 @@ pub fn main() !void {
     while (true) {
         const connection = try listener.accept();
 
-        try stdout.print("accepted new connection", .{});
+        _ = try std.Thread.spawn(.{}, handle_client, .{ stdout, connection });
+    }
+}
 
-        const reader = connection.stream.reader();
+fn handle_client(stdout: anytype, connection: net.Server.Connection) !void {
+    defer connection.stream.close();
 
-        var buffer: [1024]u8 = undefined;
-        while (try reader.read(&buffer) > 0) {
-            _ = try connection.stream.writer().write("+PONG\r\n");
-        }
+    try stdout.print("accepted new connection", .{});
 
-        connection.stream.close();
+    const reader = connection.stream.reader();
+    var buffer: [1024]u8 = undefined;
+    while (try reader.read(&buffer) > 0) {
+        _ = try connection.stream.writer().write("+PONG\r\n");
     }
 }
