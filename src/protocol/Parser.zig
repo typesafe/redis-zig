@@ -1,24 +1,14 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Types = @import("./types.zig");
+const Command = Types.Command;
+const RESP = Types.RESP;
 const Self = @This();
 
 allocator: std.mem.Allocator,
 input: []const u8,
 position: usize = 0,
-
-pub const Command = union(enum) {
-    ping: void,
-    echo: []const u8,
-
-    pub fn format(value: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        return switch (value) {
-            .ping => writer.print("PING", .{}),
-            .echo => |v| writer.print("ECHO {s}", .{v}),
-            //else => writer.print("<{}>", .{value}),
-        };
-    }
-};
 
 pub fn parse(input: []const u8, allocator: std.mem.Allocator) !RESP {
     var parser = Self{ .input = input, .allocator = allocator };
@@ -152,13 +142,15 @@ test "parse integer" {
     try testing.expectEqualDeep(try Self.parse(":-123\r\n", testing.allocator), RESP{ .integer = -123 });
 }
 
-fn parse_string(self: *Self) error{ eof, unexpected }!RESP {
+fn parse_string(self: *Self) error{ eof, unexpected, OutOfMemory }!RESP {
     const c = try self.pop(null);
-    const resp: error{ eof, unexpected }!RESP = switch (c) {
+    const resp: error{ eof, unexpected, OutOfMemory }!RESP = switch (c) {
         // +<string>\r\n
         '+' => {
             if (std.mem.indexOf(u8, self.input[self.position..], "\r")) |end| {
-                const r = RESP{ .string = self.input[self.position..(self.position + end)] };
+                const s = try self.allocator.alloc(u8, end - self.position);
+                const r = RESP{ .string = s };
+                std.mem.copyForwards(u8, s, self.input[self.position..(self.position + end)]);
                 self.position += end;
                 try self.pop_terminator();
                 return r;
@@ -169,7 +161,10 @@ fn parse_string(self: *Self) error{ eof, unexpected }!RESP {
         // $<length>\r\n<data>\r\n
         '$' => {
             const len = try self.parse_length();
-            const r = RESP{ .string = self.input[self.position..(self.position + len)] };
+            const s = try self.allocator.alloc(u8, len);
+            const r = RESP{ .string = s };
+            std.mem.copyForwards(u8, s, self.input[self.position..(self.position + len)]);
+
             self.position += len;
             try self.pop_terminator();
             return r;
@@ -190,49 +185,6 @@ test "parse bulk string" {
     try testing.expectEqualDeep(try Self.parse("$2\r\nOK\r\n", testing.allocator), RESP{ .string = "OK" });
     try testing.expectEqualDeep(try Self.parse("$6\r\nfoobar\r\n", testing.allocator), RESP{ .string = "foobar" });
 }
-
-pub const RESP = union(enum) {
-    array: struct { values: []RESP, allocator: std.mem.Allocator },
-    string: []const u8,
-    integer: i64,
-    double: f64,
-    big_number: []const u8,
-    err: struct { kind: []const u8, message: []const u8 },
-
-    pub fn to_command(self: RESP) ?Command {
-        return switch (self) {
-            .string => |v| {
-                if (std.ascii.eqlIgnoreCase(v, "PING")) {
-                    return Command{ .ping = {} };
-                }
-
-                return null;
-            },
-            .array => |v| {
-                if (v.values.len == 2 and std.ascii.eqlIgnoreCase(v.values[0].string, "ECHO")) {
-                    return Command{ .echo = v.values[1].string };
-                }
-
-                if (v.values.len == 1 and std.ascii.eqlIgnoreCase(v.values[0].string, "PING")) {
-                    return Command{ .ping = {} };
-                }
-
-                return null;
-            },
-
-            else => null,
-        };
-    }
-
-    pub fn deinit(self: RESP) void {
-        switch (self) {
-            .array => {
-                self.array.allocator.free(self.array.values);
-            },
-            else => {},
-        }
-    }
-};
 
 test "parse ECHO command" {
     var p = try Self.parse("*2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n", testing.allocator);

@@ -3,6 +3,7 @@ const net = std.net;
 const stdout = std.io.getStdOut().writer();
 
 const Parser = @import("./protocol/Parser.zig");
+const Store = @import("./protocol/stores.zig").Store;
 
 const Self = @This();
 
@@ -21,18 +22,23 @@ pub fn init(name: []const u8, port: u16, allocator: std.mem.Allocator) !Self {
 pub fn run(self: Self) !void {
     try stdout.print("Logs from your program will appear here!", .{});
 
+    var store = Store.init(self.allocator);
+    defer store.deinit();
+
     var listener = try self.address.listen(.{ .reuse_address = true });
     defer listener.deinit();
 
     while (true) {
         const connection = try listener.accept();
 
-        _ = try std.Thread.spawn(.{}, handle_client, .{ connection, self.allocator });
+        _ = try std.Thread.spawn(.{}, handle_client, .{ connection, self.allocator, &store });
     }
 }
 
-fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator) !void {
+fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator, s: *Store) !void {
     defer connection.stream.close();
+
+    var store = s;
 
     try stdout.print("accepted new connection", .{});
 
@@ -54,6 +60,18 @@ fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator
                 },
                 .echo => |v| {
                     try std.fmt.format(connection.stream.writer(), "${}\r\n{s}\r\n", .{ v.len, v });
+                },
+                .set => |v| {
+                    try store.kv.set(v.key, v.value);
+                    try std.fmt.format(connection.stream.writer(), "+OK\r\n", .{});
+                },
+                .get => |k| {
+                    const v = try store.kv.get(k);
+                    if (v) |value| {
+                        try std.fmt.format(connection.stream.writer(), "{}", .{value});
+                    } else {
+                        try std.fmt.format(connection.stream.writer(), "$-1\r\n", .{});
+                    }
                 },
             }
         }
