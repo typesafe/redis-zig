@@ -1,32 +1,17 @@
 const std = @import("std");
 const net = std.net;
 
+const Server = @import("./Server.zig");
+
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
     try stdout.print("Logs from your program will appear here!", .{});
 
-    const address = try net.Address.resolveIp("127.0.0.1", 6379);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
 
-    var listener = try address.listen(.{ .reuse_address = true });
-    defer listener.deinit();
+    const server = try Server.init("127.0.0.1", 6379, gpa.allocator());
 
-    while (true) {
-        const connection = try listener.accept();
-
-        _ = try std.Thread.spawn(.{}, handle_client, .{ stdout, connection });
-    }
-}
-
-fn handle_client(stdout: anytype, connection: net.Server.Connection) !void {
-    defer connection.stream.close();
-
-    try stdout.print("accepted new connection", .{});
-
-    const reader = connection.stream.reader();
-    var buffer: [1024]u8 = undefined;
-    while (try reader.read(&buffer) > 0) {
-        _ = try connection.stream.writer().write("+PONG\r\n");
-    }
+    try server.run();
 }
