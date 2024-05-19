@@ -6,11 +6,13 @@ const Types = @import("./types.zig");
 pub const KeyValueStore = struct {
     const Self = @This();
 
-    map: std.StringHashMap(Types.RESP),
+    map: std.StringHashMap(Entry),
+
+    pub const Entry = struct { value: Types.RESP, exp: ?i64 };
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return KeyValueStore{
-            .map = std.StringHashMap(Types.RESP).init(allocator),
+            .map = std.StringHashMap(Entry).init(allocator),
         };
     }
 
@@ -18,12 +20,23 @@ pub const KeyValueStore = struct {
         (&self.map).deinit();
     }
 
-    pub fn set(self: *Self, key: []const u8, value: Types.RESP) !void {
-        try self.map.put(key, value);
+    pub fn set(self: *Self, key: []const u8, value: Types.RESP, exp: ?i64) !void {
+        try self.map.put(key, .{ .value = value, .exp = exp });
     }
 
     pub fn get(self: *Self, key: []const u8) !?Types.RESP {
-        return self.map.get(key);
+        const r = self.map.get(key);
+        if (r) |entry| {
+            if (entry.exp) |exp| {
+                if (exp < std.time.milliTimestamp()) {
+                    _ = self.map.remove(key);
+                    return null;
+                }
+            }
+            return entry.value;
+        } else {
+            return null;
+        }
     }
 };
 

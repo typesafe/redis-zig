@@ -62,7 +62,7 @@ fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator
                     try std.fmt.format(connection.stream.writer(), "${}\r\n{s}\r\n", .{ v.len, v });
                 },
                 .set => |v| {
-                    try store.kv.set(v.key, v.value);
+                    try store.kv.set(v.key, v.value, v.exp);
                     try std.fmt.format(connection.stream.writer(), "+OK\r\n", .{});
                 },
                 .get => |k| {

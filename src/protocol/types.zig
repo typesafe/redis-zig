@@ -28,7 +28,14 @@ pub const RESP = union(enum) {
                 }
 
                 if (std.ascii.eqlIgnoreCase(v.values[0].string, "SET")) {
-                    return Command{ .set = .{ .key = v.values[1].string, .value = v.values[2] } };
+                    return Command{ .set = .{
+                        .key = v.values[1].string,
+                        .value = v.values[2],
+                        .exp = if (v.values.len == 5 and std.ascii.eqlIgnoreCase(v.values[3].string, "PX"))
+                            (std.time.milliTimestamp() + (std.fmt.parseInt(i64, v.values[4].string, 10) catch 0))
+                        else
+                            null,
+                    } };
                 }
 
                 if (std.ascii.eqlIgnoreCase(v.values[0].string, "GET")) {
@@ -67,7 +74,7 @@ pub const Command = union(enum) {
     ping: void,
     echo: []const u8,
     get: []const u8,
-    set: struct { key: []const u8, value: RESP },
+    set: struct { key: []const u8, value: RESP, exp: ?i64 },
 
     pub fn format(value: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         return switch (value) {
