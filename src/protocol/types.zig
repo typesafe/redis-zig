@@ -46,6 +46,11 @@ pub const RESP = union(enum) {
                     return Command{ .get = v.values[1].string };
                 }
 
+                if (std.ascii.eqlIgnoreCase(v.values[0].string, "REPLCONF")) {
+                    // TODO: other cases
+                    return Command{ .replconf = ReplConf{ .listenting_port = "" } };
+                }
+
                 return null;
             },
 
@@ -80,6 +85,7 @@ pub const Command = union(enum) {
     get: []const u8,
     set: struct { key: []const u8, value: RESP, exp: ?i64 },
     info: struct { arg: []const u8 },
+    replconf: ReplConf,
 
     pub fn format(value: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         return switch (value) {
@@ -88,4 +94,9 @@ pub const Command = union(enum) {
             else => writer.print("<{s}>", .{@tagName(value)}),
         };
     }
+};
+
+pub const ReplConf = union(enum) {
+    listenting_port: []const u8,
+    capa: []const u8,
 };

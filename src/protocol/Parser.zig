@@ -1,6 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 
+const CommandIterator = @import("./CommandIterator.zig");
+
 const Types = @import("./types.zig");
 const Command = Types.Command;
 const RESP = Types.RESP;
@@ -9,6 +11,10 @@ const Self = @This();
 allocator: std.mem.Allocator,
 input: []const u8,
 position: usize = 0,
+
+pub fn get_commands(reader: std.io.AnyReader, allocator: std.mem.Allocator) CommandIterator {
+    return CommandIterator.init(reader, allocator);
+}
 
 pub fn parse(input: []const u8, allocator: std.mem.Allocator) !RESP {
     var parser = Self{ .input = input, .allocator = allocator };

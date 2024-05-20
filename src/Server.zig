@@ -4,6 +4,13 @@ const stdout = std.io.getStdOut().writer();
 
 const Parser = @import("./protocol/Parser.zig");
 const Store = @import("./protocol/stores.zig").Store;
+const Types = @import("./types.zig");
+const Options = Types.Options;
+const ServerState = Types.ServerState;
+const Host = Types.Host;
+const Role = Types.Role;
+
+const Client = @import("./Client.zig");
 
 const Self = @This();
 
@@ -36,7 +43,7 @@ pub fn run(self: Self) !void {
     };
 
     if (self.options.master) |master| {
-        try replication_handshake(master, self.allocator);
+        try Client.replication_handshake(master, self.options.port, self.allocator);
     }
 
     var listener = try self.address.listen(.{ .reuse_address = true });
@@ -49,28 +56,18 @@ pub fn run(self: Self) !void {
     }
 }
 
-fn replication_handshake(master: Host, allocator: std.mem.Allocator) !void {
-    const socket = try net.tcpConnectToHost(allocator, master.host, master.port);
-    defer socket.close();
-    try socket.writer().writeAll("*1\r\n$4\r\nPING\r\n");
-
-    //try socket.reader().read(buffer)
-}
-
 fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator, s: *Store, state: *ServerState) !void {
-    defer connection.stream.close();
-
+    defer {
+        connection.stream.close();
+    }
     var store = s;
 
     try stdout.print("accepted new connection", .{});
 
-    const reader = connection.stream.reader();
-    var buffer: [1024]u8 = undefined;
-    while (try reader.read(&buffer) > 0) {
-        try stdout.print("RAW: {s}", .{buffer});
+    var iter = Parser.get_commands(connection.stream.reader().any(), allocator);
+    defer iter.deinit();
 
-        const msg = try Parser.parse(&buffer, allocator);
-
+    while (try iter.next()) |msg| {
         try stdout.print("RESP: {any}", .{msg});
 
         if (msg.to_command()) |cmd| {
@@ -102,6 +99,9 @@ fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator
                     const info = try get_replication_info(&buf, state);
                     try connection.stream.writer().print("${}\r\n{s}\r\n", .{ info.len, info });
                 },
+                .replconf => |_| {
+                    try std.fmt.format(connection.stream.writer(), "+OK\r\n", .{});
+                },
             }
         }
     }
@@ -117,28 +117,3 @@ fn get_replication_info(buffer: []u8, state: *ServerState) ![]u8 {
 
     return stream.getWritten();
 }
-
-pub const ServerState = struct {
-    role: Role = Role.master,
-    master_replid: ?[]const u8 = null,
-    master_repl_offset: ?u16 = null,
-
-    // connected_slaves: u16,
-    // second_repl_offset: i16 = -1,
-    // repl_backlog_active: u16 = 0,
-    // repl_backlog_size: usize = 1048576,
-    // repl_backlog_first_byte_offset: usize = 0,
-    // repl_backlog_histlen: ?usize,
-};
-
-pub const Role = enum {
-    master,
-    slave,
-};
-
-pub const Options = struct { port: u16, master: ?Host = null };
-
-pub const Host = struct {
-    host: []const u8,
-    port: u16,
-};

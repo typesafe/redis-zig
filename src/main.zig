@@ -2,6 +2,7 @@ const std = @import("std");
 const net = std.net;
 
 const Server = @import("./Server.zig");
+const Types = @import("./types.zig");
 
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
@@ -21,8 +22,8 @@ pub fn main() !void {
 // var to avoid cannot asign to comptime value issues
 var DEFAULT_PORT: u16 = 6379;
 
-fn parse_argv() Server.Options {
-    var options = Server.Options{ .port = @as(u16, DEFAULT_PORT) };
+fn parse_argv() Types.Options {
+    var options = Types.Options{ .port = @as(u16, DEFAULT_PORT) };
 
     for (std.os.argv, 0..) |arg, i| {
         if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--port") and i + 1 < std.os.argv.len) {
