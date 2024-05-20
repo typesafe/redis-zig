@@ -27,7 +27,13 @@ pub fn run(self: Self) !void {
     var store = Store.init(self.allocator);
     defer store.deinit();
 
-    var state = ServerState{ .role = if (self.options.master) |_| Role.slave else Role.master };
+    var state = if (self.options.master) |_| ServerState{
+        .role = Role.slave,
+    } else ServerState{
+        .role = Role.master,
+        .master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", // TODO: generate
+        .master_repl_offset = 0,
+    };
 
     var listener = try self.address.listen(.{ .reuse_address = true });
     defer listener.deinit();
@@ -80,18 +86,32 @@ fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator
                 .info => |_| {
                     const role = @tagName(state.role);
                     try stdout.print("ROLE {s}", .{role});
-                    try std.fmt.format(connection.stream.writer(), "${}\r\n#Replication\nrole:{s}\r\n", .{ 12 + 1 + 5 + role.len, role });
+                    var buf: [1024]u8 = undefined;
+                    const info = try get_replication_info(&buf, state);
+                    try connection.stream.writer().print("${}\r\n{s}\r\n", .{ info.len, info });
                 },
             }
         }
     }
 }
 
+fn get_replication_info(buffer: []u8, state: *ServerState) ![]u8 {
+    var stream = std.io.fixedBufferStream(buffer);
+    var w = stream.writer();
+    try w.print("#Replication\nrole:{s}", .{@tagName(state.role)});
+    if (state.role == Role.master) {
+        try w.print("\nmaster_replid:{s}\nmaster_repl_offset:{}", .{ state.master_replid.?, state.master_repl_offset.? });
+    }
+
+    return stream.getWritten();
+}
+
 pub const ServerState = struct {
     role: Role = Role.master,
+    master_replid: ?[]const u8 = null,
+    master_repl_offset: ?u16 = null,
+
     // connected_slaves: u16,
-    // master_replid: []const u8, //8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb
-    // master_repl_offset: u16 = 0,
     // second_repl_offset: i16 = -1,
     // repl_backlog_active: u16 = 0,
     // repl_backlog_size: usize = 1048576,
