@@ -7,7 +7,7 @@
       "request": "launch",
       "cwd": "${workspaceRoot}",
       "program": "zig",
-      "args": ["run", "./src/main.zig"]
+      "args": ["run", "./src/main.zig", "--", "--port", "6379"]
     }
   ]
 }
