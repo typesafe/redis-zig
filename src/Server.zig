@@ -9,13 +9,15 @@ const Self = @This();
 
 allocator: std.mem.Allocator,
 address: net.Address,
+options: Options,
 
-pub fn init(name: []const u8, port: u16, allocator: std.mem.Allocator) !Self {
-    const address = try net.Address.resolveIp(name, port);
+pub fn init(name: []const u8, options: Options, allocator: std.mem.Allocator) !Self {
+    const address = try net.Address.resolveIp(name, options.port);
 
     return .{
         .allocator = allocator,
         .address = address,
+        .options = options,
     };
 }
 
@@ -25,7 +27,7 @@ pub fn run(self: Self) !void {
     var store = Store.init(self.allocator);
     defer store.deinit();
 
-    var state = ServerState{};
+    var state = ServerState{ .role = if (self.options.master) |_| Role.slave else Role.master };
 
     var listener = try self.address.listen(.{ .reuse_address = true });
     defer listener.deinit();
@@ -100,4 +102,11 @@ pub const ServerState = struct {
 pub const Role = enum {
     master,
     slave,
+};
+
+pub const Options = struct { port: u16, master: ?Host = null };
+
+pub const Host = struct {
+    host: []const u8,
+    port: u16,
 };
