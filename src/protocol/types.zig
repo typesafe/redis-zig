@@ -38,6 +38,10 @@ pub const RESP = union(enum) {
                     } };
                 }
 
+                if (std.ascii.eqlIgnoreCase(v.values[0].string, "INFO")) {
+                    return Command{ .info = .{ .arg = v.values[1].string } };
+                }
+
                 if (std.ascii.eqlIgnoreCase(v.values[0].string, "GET")) {
                     return Command{ .get = v.values[1].string };
                 }
@@ -75,6 +79,7 @@ pub const Command = union(enum) {
     echo: []const u8,
     get: []const u8,
     set: struct { key: []const u8, value: RESP, exp: ?i64 },
+    info: struct { arg: []const u8 },
 
     pub fn format(value: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         return switch (value) {

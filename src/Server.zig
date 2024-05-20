@@ -25,17 +25,19 @@ pub fn run(self: Self) !void {
     var store = Store.init(self.allocator);
     defer store.deinit();
 
+    var state = ServerState{};
+
     var listener = try self.address.listen(.{ .reuse_address = true });
     defer listener.deinit();
 
     while (true) {
         const connection = try listener.accept();
 
-        _ = try std.Thread.spawn(.{}, handle_client, .{ connection, self.allocator, &store });
+        _ = try std.Thread.spawn(.{}, handle_client, .{ connection, self.allocator, &store, &state });
     }
 }
 
-fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator, s: *Store) !void {
+fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator, s: *Store, state: *ServerState) !void {
     defer connection.stream.close();
 
     var store = s;
@@ -73,7 +75,29 @@ fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator
                         try std.fmt.format(connection.stream.writer(), "$-1\r\n", .{});
                     }
                 },
+                .info => |_| {
+                    const role = @tagName(state.role);
+                    try stdout.print("ROLE {s}", .{role});
+                    try std.fmt.format(connection.stream.writer(), "${}\r\n#Replication\nrole:{s}\r\n", .{ 12 + 1 + 5 + role.len, role });
+                },
             }
         }
     }
 }
+
+pub const ServerState = struct {
+    role: Role = Role.master,
+    // connected_slaves: u16,
+    // master_replid: []const u8, //8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb
+    // master_repl_offset: u16 = 0,
+    // second_repl_offset: i16 = -1,
+    // repl_backlog_active: u16 = 0,
+    // repl_backlog_size: usize = 1048576,
+    // repl_backlog_first_byte_offset: usize = 0,
+    // repl_backlog_histlen: ?usize,
+};
+
+pub const Role = enum {
+    master,
+    slave,
+};
