@@ -2,12 +2,28 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "main",
+      "name": "master",
       "type": "lldb",
       "request": "launch",
       "cwd": "${workspaceRoot}",
       "program": "zig",
       "args": ["run", "./src/main.zig", "--", "--port", "6379"]
+    },
+    {
+      "name": "slave",
+      "type": "lldb",
+      "request": "launch",
+      "cwd": "${workspaceRoot}",
+      "program": "zig",
+      "args": [
+        "run",
+        "./src/main.zig",
+        "--",
+        "--port",
+        "6380",
+        "--replicaof",
+        "localhost 6379"
+      ]
     }
   ]
 }

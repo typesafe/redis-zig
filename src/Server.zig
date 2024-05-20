@@ -35,6 +35,10 @@ pub fn run(self: Self) !void {
         .master_repl_offset = 0,
     };
 
+    if (self.options.master) |master| {
+        try replication_handshake(master, self.allocator);
+    }
+
     var listener = try self.address.listen(.{ .reuse_address = true });
     defer listener.deinit();
 
@@ -43,6 +47,14 @@ pub fn run(self: Self) !void {
 
         _ = try std.Thread.spawn(.{}, handle_client, .{ connection, self.allocator, &store, &state });
     }
+}
+
+fn replication_handshake(master: Host, allocator: std.mem.Allocator) !void {
+    const socket = try net.tcpConnectToHost(allocator, master.host, master.port);
+    defer socket.close();
+    try socket.writer().writeAll("*1\r\n$4\r\nPING\r\n");
+
+    //try socket.reader().read(buffer)
 }
 
 fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator, s: *Store, state: *ServerState) !void {
