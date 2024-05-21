@@ -51,6 +51,11 @@ pub const RESP = union(enum) {
                     return Command{ .replconf = ReplConf{ .listenting_port = "" } };
                 }
 
+                if (std.ascii.eqlIgnoreCase(v.values[0].string, "PSYNC")) {
+                    // TODO: other cases
+                    return Command{ .psync = PSync{ .repl_id = v.values[1].string, .offset = std.fmt.parseInt(i64, v.values[2].string, 10) catch -1 } };
+                }
+
                 return null;
             },
 
@@ -86,6 +91,7 @@ pub const Command = union(enum) {
     set: struct { key: []const u8, value: RESP, exp: ?i64 },
     info: struct { arg: []const u8 },
     replconf: ReplConf,
+    psync: PSync,
 
     pub fn format(value: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         return switch (value) {
@@ -99,4 +105,9 @@ pub const Command = union(enum) {
 pub const ReplConf = union(enum) {
     listenting_port: []const u8,
     capa: []const u8,
+};
+
+pub const PSync = struct {
+    repl_id: []const u8,
+    offset: isize,
 };

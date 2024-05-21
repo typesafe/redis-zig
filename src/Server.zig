@@ -102,6 +102,9 @@ fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator
                 .replconf => |_| {
                     try std.fmt.format(connection.stream.writer(), "+OK\r\n", .{});
                 },
+                .psync => |_| {
+                    try std.fmt.format(connection.stream.writer(), "+FULLRESYNC {s} 0\r\n", .{state.master_replid.?});
+                },
             }
         }
     }
