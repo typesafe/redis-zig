@@ -65,13 +65,23 @@ fn parse_simple_string(self: *Self) !RESP {
     return RESP{ .string = try s.toOwnedSlice() };
 }
 
-fn parse_bulk_string(self: *Self) !RESP {
+pub fn parse_bulk_string(self: *Self) !RESP {
     const len = try self.parse_length();
 
     const s = self.allocator.allocator().alloc(u8, len) catch return error.Unexpected;
     _ = try self.reader.readAll(s);
     _ = try self.reader.readByte();
     _ = try self.reader.readByte();
+
+    return RESP{ .string = s };
+}
+
+pub fn parse_rdb(self: *Self) !RESP {
+    _ = try self.reader.readByte();
+    const len = try self.parse_length();
+
+    const s = self.allocator.allocator().alloc(u8, len) catch return error.Unexpected;
+    _ = try self.reader.readAll(s);
     return RESP{ .string = s };
 }
 

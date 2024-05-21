@@ -104,11 +104,16 @@ fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator
                 },
                 .psync => |_| {
                     try std.fmt.format(connection.stream.writer(), "+FULLRESYNC {s} 0\r\n", .{state.master_replid.?});
+                    var buffer: [88]u8 = undefined;
+                    const content = try std.fmt.hexToBytes(&buffer, empty_rdb);
+                    try connection.stream.writer().print("${}\r\n{s}", .{ content.len, content });
                 },
             }
         }
     }
 }
+
+const empty_rdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
 
 fn get_replication_info(buffer: []u8, state: *ServerState) ![]u8 {
     var stream = std.io.fixedBufferStream(buffer);

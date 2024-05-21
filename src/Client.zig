@@ -29,7 +29,8 @@ pub fn replication_handshake(master: Host, listening_port: u16, allocator: std.m
     try stdout.print("\nRESPONSE {any}", .{try client.receive()});
 
     try client.write(.{ "PSYNC", "?", "-1" });
-    try stdout.print("\nRESPONSE {any}", .{try client.receive()});
+    try stdout.print("\nPSYNC RESPONSE {any}", .{try client.receive()});
+    try stdout.print("\nPSYNC RESPONSE {any}", .{try client.receive_rdb()});
 }
 
 allocator: std.mem.Allocator,
@@ -60,6 +61,12 @@ pub fn receive(self: *Self) !?RESP {
     var it = Parser.get_commands(self.socket.reader().any(), self.allocator);
 
     return it.next();
+}
+
+pub fn receive_rdb(self: *Self) !RESP {
+    var it = Parser.get_commands(self.socket.reader().any(), self.allocator);
+
+    return it.parse_rdb();
 }
 
 pub fn close(self: *Self) void {
