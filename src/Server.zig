@@ -2,7 +2,8 @@ const std = @import("std");
 const net = std.net;
 const stdout = std.io.getStdOut().writer();
 
-const Parser = @import("./protocol/Parser.zig");
+const CommandIterator = @import("./CommandIterator.zig");
+
 const Store = @import("./protocol/stores.zig").Store;
 const Types = @import("./types.zig");
 const Options = Types.Options;
@@ -43,7 +44,8 @@ pub fn run(self: Self) !void {
     };
 
     if (self.options.master) |master| {
-        try Client.replication_handshake(master, self.options.port, self.allocator);
+        const stream = try Client.replication_handshake(master, self.options.port, self.allocator);
+        _ = try std.Thread.spawn(.{}, handle_client, .{ stream, self.allocator, &store, &state });
     }
 
     var listener = try self.address.listen(.{ .reuse_address = true });
@@ -52,63 +54,62 @@ pub fn run(self: Self) !void {
     while (true) {
         const connection = try listener.accept();
 
-        _ = try std.Thread.spawn(.{}, handle_client, .{ connection, self.allocator, &store, &state });
+        _ = try std.Thread.spawn(.{}, handle_client, .{ connection.stream, self.allocator, &store, &state });
     }
 }
 
-fn handle_client(connection: net.Server.Connection, allocator: std.mem.Allocator, s: *Store, state: *ServerState) !void {
-    defer {
-        connection.stream.close();
-    }
+fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, state: *ServerState) !void {
+    defer stream.close();
+
     var store = s;
 
     try stdout.print("accepted new connection", .{});
 
-    var iter = Parser.get_commands(connection.stream.reader().any(), allocator);
+    var iter = CommandIterator.init(stream.reader().any(), allocator);
     defer iter.deinit();
 
-    while (try iter.next()) |msg| {
-        try stdout.print("RESP: {any}", .{msg});
+    while (try iter.next()) |cmd| {
+        try stdout.print("CMD: {any}", .{cmd});
 
-        if (msg.to_command()) |cmd| {
-            try stdout.print("CMD: {any}", .{cmd});
-
-            switch (cmd) {
-                .ping => {
-                    _ = try connection.stream.writer().write("+PONG\r\n");
-                },
-                .echo => |v| {
-                    try std.fmt.format(connection.stream.writer(), "${}\r\n{s}\r\n", .{ v.len, v });
-                },
-                .set => |v| {
-                    try store.kv.set(v.key, v.value, v.exp);
-                    try std.fmt.format(connection.stream.writer(), "+OK\r\n", .{});
-                },
-                .get => |k| {
-                    const v = try store.kv.get(k);
-                    if (v) |value| {
-                        try std.fmt.format(connection.stream.writer(), "{}", .{value});
-                    } else {
-                        try std.fmt.format(connection.stream.writer(), "$-1\r\n", .{});
-                    }
-                },
-                .info => |_| {
-                    const role = @tagName(state.role);
-                    try stdout.print("ROLE {s}", .{role});
-                    var buf: [1024]u8 = undefined;
-                    const info = try get_replication_info(&buf, state);
-                    try connection.stream.writer().print("${}\r\n{s}\r\n", .{ info.len, info });
-                },
-                .replconf => |_| {
-                    try std.fmt.format(connection.stream.writer(), "+OK\r\n", .{});
-                },
-                .psync => |_| {
-                    try std.fmt.format(connection.stream.writer(), "+FULLRESYNC {s} 0\r\n", .{state.master_replid.?});
-                    var buffer: [88]u8 = undefined;
-                    const content = try std.fmt.hexToBytes(&buffer, empty_rdb);
-                    try connection.stream.writer().print("${}\r\n{s}", .{ content.len, content });
-                },
-            }
+        switch (cmd) {
+            .Ping => {
+                _ = try stream.writer().write("+PONG\r\n");
+            },
+            .Echo => |v| {
+                try std.fmt.format(stream.writer(), "${}\r\n{s}\r\n", .{ v.len, v });
+            },
+            .Set => |v| {
+                try store.kv.set(v.key, v.value, v.exp);
+                if (state.role == Role.master) {
+                    try std.fmt.format(stream.writer(), "+OK\r\n", .{});
+                    try state.forward(cmd);
+                }
+            },
+            .Get => |k| {
+                const v = try store.kv.get(k);
+                if (v) |value| {
+                    try std.fmt.format(stream.writer(), "{}", .{value});
+                } else {
+                    try std.fmt.format(stream.writer(), "$-1\r\n", .{});
+                }
+            },
+            .Info => |_| {
+                const role = @tagName(state.role);
+                try stdout.print("ROLE {s}", .{role});
+                var buf: [1024]u8 = undefined;
+                const info = try get_replication_info(&buf, state);
+                try stream.writer().print("${}\r\n{s}\r\n", .{ info.len, info });
+            },
+            .ReplConf => |_| {
+                try std.fmt.format(stream.writer(), "+OK\r\n", .{});
+            },
+            .PSync => |_| {
+                try std.fmt.format(stream.writer(), "+FULLRESYNC {s} 0\r\n", .{state.master_replid.?});
+                var buffer: [88]u8 = undefined;
+                const content = try std.fmt.hexToBytes(&buffer, empty_rdb);
+                try stream.writer().print("${}\r\n{s}", .{ content.len, content });
+                state.add_replica(stream);
+            },
         }
     }
 }

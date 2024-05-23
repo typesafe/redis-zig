@@ -2,9 +2,8 @@ const std = @import("std");
 const net = std.net;
 const stdout = std.io.getStdOut().writer();
 
-const Parser = @import("./protocol/Parser.zig");
-
-const RESP = @import("./protocol/types.zig").RESP;
+const ParserUnmanaged = @import("./resp/ParserUnmanaged.zig");
+const Value = @import("./resp/value.zig").Value;
 
 const Types = @import("./types.zig");
 const Options = Types.Options;
@@ -14,9 +13,8 @@ const Role = Types.Role;
 
 const Self = @This();
 
-pub fn replication_handshake(master: Host, listening_port: u16, allocator: std.mem.Allocator) !void {
+pub fn replication_handshake(master: Host, listening_port: u16, allocator: std.mem.Allocator) !net.Stream {
     var client = try init(master, allocator);
-    defer client.close();
 
     try client.write(.{"PING"});
     try stdout.print("\nRESPONSE {any}", .{try client.receive()});
@@ -31,6 +29,8 @@ pub fn replication_handshake(master: Host, listening_port: u16, allocator: std.m
     try client.write(.{ "PSYNC", "?", "-1" });
     try stdout.print("\nPSYNC RESPONSE {any}", .{try client.receive()});
     try stdout.print("\nPSYNC RESPONSE {any}", .{try client.receive_rdb()});
+
+    return client.socket;
 }
 
 allocator: std.mem.Allocator,
@@ -57,16 +57,16 @@ pub fn print(self: *Self, comptime format: []const u8, args: anytype) !void {
     return self.socket.writer().print(format, args);
 }
 
-pub fn receive(self: *Self) !?RESP {
-    var it = Parser.get_commands(self.socket.reader().any(), self.allocator);
+pub fn receive(self: *Self) !?Value {
+    return ParserUnmanaged.parse(self.socket.reader().any(), self.allocator) catch |err| {
+        if (err == error.EndOfStream) return null;
 
-    return it.next();
+        return err;
+    };
 }
 
-pub fn receive_rdb(self: *Self) !RESP {
-    var it = Parser.get_commands(self.socket.reader().any(), self.allocator);
-
-    return it.parse_rdb();
+pub fn receive_rdb(self: *Self) ![]const u8 {
+    return try ParserUnmanaged.parseRdb(self.socket.reader().any(), self.allocator);
 }
 
 pub fn close(self: *Self) void {

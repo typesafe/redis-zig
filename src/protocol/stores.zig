@@ -1,14 +1,14 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Types = @import("./types.zig");
+const Value = @import("../resp/value.zig").Value;
 
 pub const KeyValueStore = struct {
     const Self = @This();
 
     map: std.StringHashMap(Entry),
 
-    pub const Entry = struct { value: Types.RESP, exp: ?i64 };
+    pub const Entry = struct { value: Value, exp: ?i64 };
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return KeyValueStore{
@@ -20,11 +20,17 @@ pub const KeyValueStore = struct {
         (&self.map).deinit();
     }
 
-    pub fn set(self: *Self, key: []const u8, value: Types.RESP, exp: ?i64) !void {
-        try self.map.put(key, .{ .value = value, .exp = exp });
+    pub fn set(self: *Self, key: []const u8, value: Value, exp: ?i64) !void {
+        const k = try self.map.allocator.alloc(u8, key.len);
+        @memcpy(k, key);
+
+        try self.map.put(
+            k,
+            .{ .value = try value.copy(self.map.allocator), .exp = exp },
+        );
     }
 
-    pub fn get(self: *Self, key: []const u8) !?Types.RESP {
+    pub fn get(self: *Self, key: []const u8) !?Value {
         const r = self.map.get(key);
         if (r) |entry| {
             if (entry.exp) |exp| {
