@@ -8,6 +8,7 @@ pub const ServerState = struct {
     master_repl_offset: ?u16 = null,
     replicas: [5]Replica = undefined,
     replica_count: u8 = 0,
+    offset: u64 = 0,
     // connected_slaves: u16,
     // second_repl_offset: i16 = -1,
     // repl_backlog_active: u16 = 0,

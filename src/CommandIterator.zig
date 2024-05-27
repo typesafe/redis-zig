@@ -9,12 +9,13 @@ const Command = @import("./command.zig").Command;
 
 const Self = @This();
 
-reader: std.io.AnyReader,
+reader: std.io.CountingReader(std.io.AnyReader),
 arena: std.heap.ArenaAllocator,
+lastCommandBytes: u64 = 0,
 
 pub fn init(reader: std.io.AnyReader, allocator: std.mem.Allocator) Self {
     return Self{
-        .reader = reader,
+        .reader = std.io.countingReader(reader),
         .arena = std.heap.ArenaAllocator.init(allocator),
     };
 }
@@ -54,12 +55,14 @@ test "deinit iterator only" {
 
 /// Blocks until a message is received. Return null when the reader is closed.s
 pub fn next(self: *Self) anyerror!?Command {
-    const v = ParserUnmanaged.parse(self.reader, self.arena.allocator()) catch |err| {
+    const before = self.reader.bytes_read;
+    const v = ParserUnmanaged.parse(self.reader.reader().any(), self.arena.allocator()) catch |err| {
         if (err == error.EndOfStream) return null;
 
         return err;
     };
 
+    self.lastCommandBytes = self.reader.bytes_read - before;
     return Command.parse(v);
 }
 

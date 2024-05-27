@@ -73,7 +73,9 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
 
         switch (cmd) {
             .Ping => {
-                _ = try stream.writer().write("+PONG\r\n");
+                if (state.role == Role.master) {
+                    _ = try stream.writer().write("+PONG\r\n");
+                }
             },
             .Echo => |v| {
                 try std.fmt.format(stream.writer(), "${}\r\n{s}\r\n", .{ v.len, v });
@@ -102,7 +104,12 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
             },
             .ReplConf => |rc| {
                 switch (rc) {
-                    .GetAck => try Serializer.write(stream.writer().any(), .{ "REPLCONF", "ACK", "0" }),
+                    .GetAck => {
+                        var buf: [8]u8 = undefined;
+                        const offset = try std.fmt.bufPrint(&buf, "{}", .{state.offset});
+
+                        try Serializer.write(stream.writer().any(), .{ "REPLCONF", "ACK", offset });
+                    },
                     else => try std.fmt.format(stream.writer(), "+OK\r\n", .{}),
                 }
             },
@@ -114,6 +121,8 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                 try state.add_replica(stream, allocator);
             },
         }
+
+        state.offset += iter.lastCommandBytes;
     }
 }
 
