@@ -124,7 +124,7 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                 if (state.replica_count == 0) {
                     _ = try stream.writer().write(":0\r\n");
                 } else {
-                    _ = try stream.writer().write(":0\r\n");
+                    _ = try stream.writer().print(":{}\r\n", .{state.replica_count});
                 }
             },
         }
