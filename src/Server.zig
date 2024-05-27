@@ -120,6 +120,13 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                 try stream.writer().print("${}\r\n{s}", .{ content.len, content });
                 try state.add_replica(stream, allocator);
             },
+            .Wait => |_| {
+                if (state.replica_count == 0) {
+                    _ = try stream.writer().write(":0\r\n");
+                } else {
+                    _ = try stream.writer().write(":0\r\n");
+                }
+            },
         }
 
         state.offset += iter.lastCommandBytes;
