@@ -15,12 +15,17 @@ pub const ServerState = struct {
     // repl_backlog_first_byte_offset: usize = 0,
     // repl_backlog_histlen: ?usize,
 
-    pub fn add_replica(self: *@This(), stream: std.net.Stream) void {
-        self.replicas[self.replica_count] = Replica.init(stream);
+    pub fn add_replica(self: *@This(), stream: std.net.Stream, allocator: std.mem.Allocator) !void {
+        const r = Replica.init(stream, allocator);
+        self.replicas[self.replica_count] = r;
         self.replica_count += 1;
+
+        // TODO: this should be recurring...
+        //try r.getAck();
     }
 
     pub fn forward(self: *@This(), cmd: Command) !void {
+        // TODO sync with lock
         for (0..self.replica_count) |i| {
             try self.replicas[i].forward(cmd);
         }

@@ -13,8 +13,9 @@ pub const Command = union(enum) {
     PSync: PSync,
 
     pub const ReplConf = union(enum) {
-        listenting_port: []const u8,
-        capa: []const u8,
+        ListeningPort: []const u8,
+        Capa: []const u8,
+        GetAck: []const u8,
     };
 
     pub const PSync = struct {
@@ -62,8 +63,11 @@ pub const Command = union(enum) {
                 }
 
                 if (std.ascii.eqlIgnoreCase(v[0].String, "REPLCONF")) {
+                    if (std.ascii.eqlIgnoreCase(v[1].String, "GETACK")) {
+                        return Command{ .ReplConf = ReplConf{ .GetAck = v[2].String } };
+                    }
                     // TODO: other cases
-                    return Command{ .ReplConf = ReplConf{ .listenting_port = "" } };
+                    return Command{ .ReplConf = ReplConf{ .ListeningPort = v[2].String } };
                 }
 
                 if (std.ascii.eqlIgnoreCase(v[0].String, "PSYNC")) {
@@ -84,6 +88,11 @@ pub const Command = union(enum) {
             .Echo => |v| write(writer, .{ "ECHO", v }),
             .Set => |v| write(writer, .{ "SET", v.key, v.value.String }),
             .Get => |v| write(writer, .{ "GET", v }),
+            .ReplConf => |v| switch (v) {
+                .ListeningPort => |p| write(writer, .{ "REPLCONF", "listening-port", p }),
+                .GetAck => |a| write(writer, .{ "REPLCONF", "GETACK", a }),
+                else => write(writer, .{ "REPLCONF", "?" }),
+            },
             else => writer.print("<{s}>", .{@tagName(value)}),
         };
     }

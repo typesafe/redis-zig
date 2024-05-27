@@ -3,6 +3,7 @@ const net = std.net;
 const stdout = std.io.getStdOut().writer();
 
 const ParserUnmanaged = @import("./resp/ParserUnmanaged.zig");
+const Serializer = @import("./resp/Serializer.zig");
 const Value = @import("./resp/value.zig").Value;
 
 const Types = @import("./types.zig");
@@ -45,12 +46,7 @@ pub fn init(host: Host, allocator: std.mem.Allocator) !Self {
 }
 
 pub fn write(self: *Self, items: anytype) !void {
-    const w = self.socket.writer();
-    try w.print("*{}\r\n", .{items.len});
-
-    inline for (items) |item| {
-        try w.print("${}\r\n{s}\r\n", .{ item.len, item });
-    }
+    return Serializer.write(self.socket.writer().any(), items);
 }
 
 pub fn print(self: *Self, comptime format: []const u8, args: anytype) !void {
