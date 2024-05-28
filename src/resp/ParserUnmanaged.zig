@@ -14,7 +14,9 @@ pub fn parse(reader: std.io.AnyReader, allocator: std.mem.Allocator) anyerror!Va
         '$' => parseBulkString(reader, allocator),
         ':' => parseInteger(reader),
         else => {
-            try std.io.getStdOut().writer().print("UNEXPECTED TAG: {}", .{tag});
+            var buffer = [_]u8{ 'x', 'x', 'x', 'x' };
+            _ = try reader.read(&buffer);
+            try std.io.getStdOut().writer().print("UNEXPECTED TAG: '{}'", .{tag});
             return error.Unexpected;
         },
     };

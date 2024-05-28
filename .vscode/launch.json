@@ -24,6 +24,38 @@
         "--replicaof",
         "localhost 6379"
       ]
+    },
+    {
+      "name": "slave2",
+      "type": "lldb",
+      "request": "launch",
+      "cwd": "${workspaceRoot}",
+      "program": "zig",
+      "args": [
+        "run",
+        "./src/main.zig",
+        "--",
+        "--port",
+        "6381",
+        "--replicaof",
+        "localhost 6379"
+      ]
+    },
+    {
+      "name": "slave3",
+      "type": "lldb",
+      "request": "launch",
+      "cwd": "${workspaceRoot}",
+      "program": "zig",
+      "args": [
+        "run",
+        "./src/main.zig",
+        "--",
+        "--port",
+        "6382",
+        "--replicaof",
+        "localhost 6379"
+      ]
     }
   ]
 }

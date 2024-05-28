@@ -6,7 +6,7 @@ const Value = @import("./resp/value.zig").Value;
 pub const Command = union(enum) {
     Ping: void,
     Echo: []const u8,
-    Wait: struct { numReplicas: usize, timeout: usize },
+    Wait: struct { numReplicas: usize, timeout: i64 },
     Info: struct { arg: []const u8 },
     Get: []const u8,
     Set: struct { key: []const u8, value: Value, exp: ?i64 },
@@ -47,7 +47,7 @@ pub const Command = union(enum) {
                 if (v.len == 3 and std.ascii.eqlIgnoreCase(v[0].String, "WAIT")) {
                     return Command{ .Wait = .{
                         .numReplicas = (std.fmt.parseInt(usize, v[1].String, 10) catch 0),
-                        .timeout = (std.fmt.parseInt(usize, v[2].String, 10) catch 0),
+                        .timeout = (std.fmt.parseInt(i64, v[2].String, 10) catch @as(i64, 0)),
                     } };
                 }
 

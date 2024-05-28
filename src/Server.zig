@@ -3,6 +3,8 @@ const net = std.net;
 const stdout = std.io.getStdOut().writer();
 
 const CommandIterator = @import("./CommandIterator.zig");
+const ParserUnmanaged = @import("./resp/ParserUnmanaged.zig");
+const Command = @import("./command.zig").Command;
 const Serializer = @import("./resp/Serializer.zig");
 const Store = @import("./protocol/stores.zig").Store;
 const Types = @import("./types.zig");
@@ -59,7 +61,7 @@ pub fn run(self: Self) !void {
 }
 
 fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, state: *ServerState) !void {
-    defer stream.close();
+    errdefer stream.close();
 
     var store = s;
 
@@ -119,18 +121,18 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                 const content = try std.fmt.hexToBytes(&buffer, empty_rdb);
                 try stream.writer().print("${}\r\n{s}", .{ content.len, content });
                 try state.add_replica(stream, allocator);
+                // this is a client now, we no longer need to listen to its commands
+                break;
             },
             .Wait => |_| {
-                if (state.replica_count == 0) {
-                    _ = try stream.writer().write(":0\r\n");
-                } else {
-                    _ = try stream.writer().print(":{}\r\n", .{state.replica_count});
-                }
+                try handleWait(state, cmd, &stream, allocator);
             },
         }
 
         state.offset += iter.lastCommandBytes;
     }
+
+    try stdout.print("Exiting read loop...", .{});
 }
 
 const empty_rdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
@@ -144,4 +146,23 @@ fn get_replication_info(buffer: []u8, state: *ServerState) ![]u8 {
     }
 
     return stream.getWritten();
+}
+
+fn handleWait(state: *ServerState, wait: Command, stream: *const net.Stream, _: std.mem.Allocator) !void {
+    const deadline = std.time.milliTimestamp() + wait.Wait.timeout;
+
+    var processedCount: usize = 0;
+
+    while (deadline > std.time.milliTimestamp() and processedCount < state.replica_count) {
+        for (state.replicas) |r| {
+            Serializer.write(r.stream.writer().any(), .{ "REPLCONF", "GETACK", "*" }) catch continue;
+
+            // const reply = ParserUnmanaged.parse(r.stream.reader().any(), allocator) catch continue;
+            // _ = reply;
+
+            processedCount += 1;
+        }
+    }
+
+    _ = try stream.writer().print(":{}\r\n", .{processedCount});
 }
