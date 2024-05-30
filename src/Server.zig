@@ -20,6 +20,7 @@ const Self = @This();
 allocator: std.mem.Allocator,
 address: net.Address,
 options: Options,
+listener: ?std.net.Server = null,
 
 pub fn init(name: []const u8, options: Options, allocator: std.mem.Allocator) !Self {
     const address = try net.Address.resolveIp(name, options.port);
@@ -31,9 +32,12 @@ pub fn init(name: []const u8, options: Options, allocator: std.mem.Allocator) !S
     };
 }
 
-pub fn run(self: Self) !void {
-    try stdout.print("Logs from your program will appear here!", .{});
+pub fn deinit(self: Self) void {
+    var l = self.listener.?;
+    (&l).deinit();
+}
 
+pub fn run(self: *Self) !void {
     var store = Store.init(self.allocator);
     defer store.deinit();
 
@@ -50,11 +54,14 @@ pub fn run(self: Self) !void {
         _ = try std.Thread.spawn(.{}, handle_client, .{ stream, self.allocator, &store, &state });
     }
 
-    var listener = try self.address.listen(.{ .reuse_address = true });
-    defer listener.deinit();
+    self.listener = try self.address.listen(.{ .reuse_address = true });
+    errdefer self.listener.?.deinit();
 
     while (true) {
-        const connection = try listener.accept();
+        const connection = self.listener.?.accept() catch {
+            // TODO: this should be happening only because the main thread called deinit on the server.
+            break;
+        };
 
         _ = try std.Thread.spawn(.{}, handle_client, .{ connection.stream, self.allocator, &store, &state });
     }
@@ -125,7 +132,7 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                 break;
             },
             .Wait => |_| {
-                try handleWait(state, cmd, &stream, allocator);
+                try handleWait(state, cmd, stream, allocator);
             },
         }
 
@@ -156,10 +163,6 @@ fn handleWait(state: *ServerState, wait: Command, stream: *const net.Stream, _: 
     while (deadline > std.time.milliTimestamp() and processedCount < state.replica_count) {
         for (state.replicas) |r| {
             Serializer.write(r.stream.writer().any(), .{ "REPLCONF", "GETACK", "*" }) catch continue;
-
-            // const reply = ParserUnmanaged.parse(r.stream.reader().any(), allocator) catch continue;
-            // _ = reply;
-
             processedCount += 1;
         }
     }

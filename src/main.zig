@@ -1,5 +1,6 @@
 const std = @import("std");
 const net = std.net;
+const signal = @import("signal");
 
 const Server = @import("./Server.zig");
 const Types = @import("./types.zig");
@@ -7,15 +8,29 @@ const Types = @import("./types.zig");
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
-    try stdout.print("Logs from your program will appear here!", .{});
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
+    try stdout.print("Parsing options...\n", .{});
     const options = parse_argv();
 
-    const server = try Server.init("127.0.0.1", options, gpa.allocator());
+    try stdout.print("Starting {s}...\n", .{if (options.master) |_| "slave" else "master"});
 
+    var server = try Server.init("127.0.0.1", options, gpa.allocator());
+
+    const t = try std.Thread.spawn(.{}, listen, .{&server});
+
+    try stdout.print("Accepting connections. Press any key to exit.\n", .{});
+
+    _ = try std.io.getStdIn().reader().readByte();
+    server.deinit();
+
+    try stdout.print("Exiting...\n", .{});
+
+    t.join();
+}
+
+fn listen(server: *Server) !void {
     try server.run();
 }
 

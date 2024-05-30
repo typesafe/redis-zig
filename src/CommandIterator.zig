@@ -53,7 +53,7 @@ test "deinit iterator only" {
     it.deinit();
 }
 
-/// Blocks until a message is received. Return null when the reader is closed.s
+/// Blocks until a message is received. Returns null when the reader is closed.
 pub fn next(self: *Self) anyerror!?Command {
     const before = self.reader.bytes_read;
     const v = ParserUnmanaged.parse(self.reader.reader().any(), self.arena.allocator()) catch |err| {
