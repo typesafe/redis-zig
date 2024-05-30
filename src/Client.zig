@@ -5,6 +5,7 @@ const stdout = std.io.getStdOut().writer();
 const ParserUnmanaged = @import("./resp/ParserUnmanaged.zig");
 const Serializer = @import("./resp/Serializer.zig");
 const Value = @import("./resp/value.zig").Value;
+const Command = @import("./command.zig").Command;
 
 const Types = @import("./types.zig");
 const Options = Types.Options;
@@ -14,8 +15,10 @@ const Role = Types.Role;
 
 const Self = @This();
 
-pub fn replication_handshake(master: Host, listening_port: u16, allocator: std.mem.Allocator) !net.Stream {
+pub fn replication_handshake(master: Host, listening_port: u16, allocator: std.mem.Allocator) !struct { stream: net.Stream, offset: u64 } {
     var client = try init(master, allocator);
+
+    // TODO: free response values
 
     try client.write(.{"PING"});
     try stdout.print("\nRESPONSE {any}", .{try client.receive()});
@@ -28,10 +31,13 @@ pub fn replication_handshake(master: Host, listening_port: u16, allocator: std.m
     try stdout.print("\nRESPONSE {any}", .{try client.receive()});
 
     try client.write(.{ "PSYNC", "?", "-1" });
-    try stdout.print("\nPSYNC RESPONSE {any}", .{try client.receive()});
+
+    const fr = Command.parse((try client.receive()).?).?;
+
+    //try stdout.print("\nPSYNC RESPONSE {any}", .{try client.receive()});
     try stdout.print("\nPSYNC RESPONSE {any}", .{try client.receive_rdb()});
 
-    return client.socket;
+    return .{ .stream = client.socket, .offset = @intCast(fr.FullResync.offset) };
 }
 
 allocator: std.mem.Allocator,

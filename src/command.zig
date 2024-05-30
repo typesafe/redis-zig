@@ -12,11 +12,17 @@ pub const Command = union(enum) {
     Set: struct { key: []const u8, value: Value, exp: ?i64 },
     ReplConf: ReplConf,
     PSync: PSync,
+    FullResync: FullResync,
+
+    pub const FullResync = struct {
+        offset: isize,
+    };
 
     pub const ReplConf = union(enum) {
         ListeningPort: []const u8,
         Capa: []const u8,
         GetAck: []const u8,
+        Ack: []const u8,
     };
 
     pub const PSync = struct {
@@ -31,6 +37,13 @@ pub const Command = union(enum) {
             .String => |v| {
                 if (std.ascii.eqlIgnoreCase(v, "PING")) {
                     return Command{ .Ping = {} };
+                }
+
+                if (std.ascii.startsWithIgnoreCase(v, "FULLRESYNC")) {
+                    var it = std.mem.splitScalar(u8, v, ' ');
+                    _ = it.next();
+
+                    return Command{ .FullResync = .{ .offset = std.fmt.parseInt(isize, it.next().?, 10) catch 0 } };
                 }
 
                 return null;
@@ -74,6 +87,17 @@ pub const Command = union(enum) {
                     if (std.ascii.eqlIgnoreCase(v[1].String, "GETACK")) {
                         return Command{ .ReplConf = ReplConf{ .GetAck = v[2].String } };
                     }
+
+                    if (std.ascii.eqlIgnoreCase(v[1].String, "CAPA")) {
+                        // TODO: this is a list of tuples
+                        return Command{ .ReplConf = ReplConf{ .Capa = v[2].String } };
+                    }
+
+                    if (std.ascii.eqlIgnoreCase(v[1].String, "ACK")) {
+                        // TODO: this is a list of tuples
+                        return Command{ .ReplConf = ReplConf{ .Ack = v[2].String } };
+                    }
+
                     // TODO: other cases
                     return Command{ .ReplConf = ReplConf{ .ListeningPort = v[2].String } };
                 }
@@ -99,6 +123,7 @@ pub const Command = union(enum) {
             .ReplConf => |v| switch (v) {
                 .ListeningPort => |p| write(writer, .{ "REPLCONF", "listening-port", p }),
                 .GetAck => |a| write(writer, .{ "REPLCONF", "GETACK", a }),
+                .Ack => |a| write(writer, .{ "REPLCONF", "ACK", a }),
                 else => write(writer, .{ "REPLCONF", "?" }),
             },
             else => writer.print("<{s}>", .{@tagName(value)}),

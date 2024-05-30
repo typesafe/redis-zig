@@ -10,24 +10,25 @@ const Self = @This();
 
 stream: net.Stream,
 allocator: std.mem.Allocator,
+offset: isize = 0,
 
 pub fn init(stream: net.Stream, allocator: std.mem.Allocator) Self {
     return .{ .stream = stream, .allocator = allocator };
 }
 
-pub fn forward(self: *const Self, command: Command) !void {
+pub fn write(self: *const Self, command: Command) !void {
     try self.stream.writer().print("{}", .{command});
 }
 
 pub fn getAck(self: *const Self) !void {
     try Serializer.write(self.stream.writer().any(), .{ "REPLCONF", "GETACK", "*" });
 
-    const res = try ParserUnmanaged.parse(self.stream.reader().any(), self.allocator);
-    if (std.mem.eql(u8, res.List[0].String, "REPLCONF")) {
-        // OK
-    } else {
-        @panic("Un expected reply");
-    }
+    // const res = try ParserUnmanaged.parse(self.stream.reader().any(), self.allocator);
+    // if (std.mem.eql(u8, res.List[0].String, "REPLCONF")) {
+    //     // OK
+    // } else {
+    //     @panic("Un expected reply");
+    // }
 
-    ParserUnmanaged.free(res, self.allocator);
+    // ParserUnmanaged.free(res, self.allocator);
 }

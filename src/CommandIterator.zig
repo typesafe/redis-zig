@@ -54,7 +54,7 @@ test "deinit iterator only" {
 }
 
 /// Blocks until a message is received. Returns null when the reader is closed.
-pub fn next(self: *Self) anyerror!?Command {
+pub fn next(self: *Self) anyerror!?Value {
     const before = self.reader.bytes_read;
     const v = ParserUnmanaged.parse(self.reader.reader().any(), self.arena.allocator()) catch |err| {
         if (err == error.EndOfStream) return null;
@@ -63,7 +63,7 @@ pub fn next(self: *Self) anyerror!?Command {
     };
 
     self.lastCommandBytes = self.reader.bytes_read - before;
-    return Command.parse(v);
+    return v;
 }
 
 test "next should return null on end of stream" {

@@ -42,16 +42,19 @@ pub fn run(self: *Self) !void {
     defer store.deinit();
 
     var state = if (self.options.master) |_| ServerState{
-        .role = Role.slave,
+        .Slave = .{},
     } else ServerState{
-        .role = Role.master,
-        .master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", // TODO: generate
-        .master_repl_offset = 0,
+        .Master = .{
+            .id = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", // TODO: generate
+            .replicationState = Types.ReplicationState.init(self.allocator),
+        },
     };
 
     if (self.options.master) |master| {
-        const stream = try Client.replication_handshake(master, self.options.port, self.allocator);
-        _ = try std.Thread.spawn(.{}, handle_client, .{ stream, self.allocator, &store, &state });
+        const res = try Client.replication_handshake(master, self.options.port, self.allocator);
+        _ = try std.Thread.spawn(.{}, handle_client, .{ res.stream, self.allocator, &store, &state });
+        state.Slave.offset = res.offset;
+        // TODO: is a slave supposed to listen for other client connections? Let's do that for now since it allows us to keep things up-and-running...
     }
 
     self.listener = try self.address.listen(.{ .reuse_address = true });
@@ -62,83 +65,101 @@ pub fn run(self: *Self) !void {
             // TODO: this should be happening only because the main thread called deinit on the server.
             break;
         };
-
+        try stdout.print("accepted new connection, spawning thread...", .{});
         _ = try std.Thread.spawn(.{}, handle_client, .{ connection.stream, self.allocator, &store, &state });
     }
 }
 
 fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, state: *ServerState) !void {
-    errdefer stream.close();
+    defer stream.close();
 
     var store = s;
-
-    try stdout.print("accepted new connection", .{});
 
     var iter = CommandIterator.init(stream.reader().any(), allocator);
     defer iter.deinit();
 
-    while (try iter.next()) |cmd| {
-        try stdout.print("CMD: {any}", .{cmd});
+    while (try iter.next()) |value| {
+        defer iter.free(value);
 
-        switch (cmd) {
-            .Ping => {
-                if (state.role == Role.master) {
-                    _ = try stream.writer().write("+PONG\r\n");
-                }
-            },
-            .Echo => |v| {
-                try std.fmt.format(stream.writer(), "${}\r\n{s}\r\n", .{ v.len, v });
-            },
-            .Set => |v| {
-                try store.kv.set(v.key, v.value, v.exp);
-                if (state.role == Role.master) {
-                    try std.fmt.format(stream.writer(), "+OK\r\n", .{});
-                    try state.forward(cmd);
-                }
-            },
-            .Get => |k| {
-                const v = try store.kv.get(k);
-                if (v) |value| {
-                    try std.fmt.format(stream.writer(), "{}", .{value});
-                } else {
-                    try std.fmt.format(stream.writer(), "$-1\r\n", .{});
-                }
-            },
-            .Info => |_| {
-                const role = @tagName(state.role);
-                try stdout.print("ROLE {s}", .{role});
-                var buf: [1024]u8 = undefined;
-                const info = try get_replication_info(&buf, state);
-                try stream.writer().print("${}\r\n{s}\r\n", .{ info.len, info });
-            },
-            .ReplConf => |rc| {
-                switch (rc) {
-                    .GetAck => {
-                        var buf: [8]u8 = undefined;
-                        const offset = try std.fmt.bufPrint(&buf, "{}", .{state.offset});
+        if (Command.parse(value)) |cmd| {
+            try stdout.print("CMD: {any}", .{cmd});
 
-                        try Serializer.write(stream.writer().any(), .{ "REPLCONF", "ACK", offset });
-                    },
-                    else => try std.fmt.format(stream.writer(), "+OK\r\n", .{}),
-                }
-            },
-            .PSync => |_| {
-                try std.fmt.format(stream.writer(), "+FULLRESYNC {s} 0\r\n", .{state.master_replid.?});
-                var buffer: [88]u8 = undefined;
-                const content = try std.fmt.hexToBytes(&buffer, empty_rdb);
-                try stream.writer().print("${}\r\n{s}", .{ content.len, content });
-                try state.add_replica(stream, allocator);
-                // this is a client now, we no longer need to listen to its commands
-                break;
-            },
-            .Wait => |_| {
-                try handleWait(state, cmd, stream, allocator);
-            },
+            switch (cmd) {
+                .Ping => {
+                    if (state.* == .Master) {
+                        _ = try stream.writer().write("+PONG\r\n");
+                    }
+                },
+                .Echo => |v| {
+                    try std.fmt.format(stream.writer(), "${}\r\n{s}\r\n", .{ v.len, v });
+                },
+                .Set => |v| {
+                    try store.kv.set(v.key, v.value, v.exp);
+                    if (state.* == .Master) {
+                        try std.fmt.format(stream.writer(), "+OK\r\n", .{});
+                        try state.Master.replicationState.broadcast(cmd);
+                        state.Master.offset += iter.lastCommandBytes;
+                    }
+                },
+                .Get => |k| {
+                    const v = try store.kv.get(k);
+                    if (v) |val| {
+                        try std.fmt.format(stream.writer(), "{}", .{val});
+                    } else {
+                        try std.fmt.format(stream.writer(), "$-1\r\n", .{});
+                    }
+                },
+                .Info => |_| {
+                    try stdout.print("ROLE {s}", .{if (state.* == .Master) "master" else "slave"});
+                    var buf: [1024]u8 = undefined;
+                    const info = try get_replication_info(&buf, state);
+                    try stream.writer().print("${}\r\n{s}\r\n", .{ info.len, info });
+                },
+                .ReplConf => |rc| {
+                    switch (rc) {
+                        .GetAck => {
+                            var buf: [8]u8 = undefined;
+                            const offset = try std.fmt.bufPrint(&buf, "{}", .{state.Slave.offset});
+
+                            try Serializer.write(stream.writer().any(), .{ "REPLCONF", "ACK", offset });
+                        },
+                        .Ack => |ack| {
+                            if (state.Master.replicationState.getReplica(stream)) |r| {
+                                r.*.offset = try std.fmt.parseInt(isize, ack, 10);
+                            }
+                        },
+                        else => try std.fmt.format(stream.writer(), "+OK\r\n", .{}),
+                    }
+                },
+                .PSync => |_| {
+                    try std.fmt.format(stream.writer(), "+FULLRESYNC {s} {}\r\n", .{ state.Master.id, state.Master.offset });
+                    var buffer: [88]u8 = undefined;
+                    const content = try std.fmt.hexToBytes(&buffer, empty_rdb);
+                    try stream.writer().print("${}\r\n{s}", .{ content.len, content });
+                    try state.Master.replicationState.addReplica(stream);
+                    // this is a client now, we no longer need to listen to its commands
+
+                },
+                .FullResync => |fr| {
+                    const os: u64 = @intCast(fr.offset);
+                    state.Slave.offset = os - iter.lastCommandBytes; // to compensate for the += below...
+                },
+                .Wait => |_| {
+                    try handleWait(state, cmd, stream, allocator);
+                },
+            }
         }
 
-        state.offset += iter.lastCommandBytes;
+        if (state.* == .Slave) {
+            state.Slave.offset += iter.lastCommandBytes;
+        }
     }
 
+    if (state.* == .Master) {
+        if (state.*.Master.replicationState.removeReplica(stream)) {
+            try stdout.print("Removed replica...", .{});
+        }
+    }
     try stdout.print("Exiting read loop...", .{});
 }
 
@@ -147,25 +168,29 @@ const empty_rdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656
 fn get_replication_info(buffer: []u8, state: *ServerState) ![]u8 {
     var stream = std.io.fixedBufferStream(buffer);
     var w = stream.writer();
-    try w.print("#Replication\nrole:{s}", .{@tagName(state.role)});
-    if (state.role == Role.master) {
-        try w.print("\nmaster_replid:{s}\nmaster_repl_offset:{}", .{ state.master_replid.?, state.master_repl_offset.? });
+    try w.print("#Replication\nrole:{s}", .{if (state.* == .Master) "master" else "slave"});
+    if (state.* == .Master) {
+        try w.print("\nmaster_replid:{s}\nmaster_repl_offset:{}", .{ state.Master.id, state.Master.offset });
     }
 
     return stream.getWritten();
 }
 
-fn handleWait(state: *ServerState, wait: Command, stream: *const net.Stream, _: std.mem.Allocator) !void {
+fn handleWait(state: *ServerState, wait: Command, stream: net.Stream, _: std.mem.Allocator) !void {
+    const expectedOffset = state.Master.offset;
+    const expectedAcknowledgements = wait.Wait.numReplicas;
     const deadline = std.time.milliTimestamp() + wait.Wait.timeout;
 
-    var processedCount: usize = 0;
+    try state.Master.replicationState.broadcast(Command{ .ReplConf = .{ .GetAck = "*" } });
 
-    while (deadline > std.time.milliTimestamp() and processedCount < state.replica_count) {
-        for (state.replicas) |r| {
-            Serializer.write(r.stream.writer().any(), .{ "REPLCONF", "GETACK", "*" }) catch continue;
-            processedCount += 1;
+    while (deadline > std.time.milliTimestamp()) {
+        const acks = state.Master.replicationState.countUpToDate(expectedOffset);
+
+        if (acks >= expectedAcknowledgements) {
+            _ = try stream.writer().print(":{}\r\n", .{acks});
+            return;
         }
     }
 
-    _ = try stream.writer().print(":{}\r\n", .{processedCount});
+    _ = try stream.writer().print(":{}\r\n", .{state.Master.replicationState.countUpToDate(expectedOffset)});
 }
