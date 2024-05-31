@@ -55,6 +55,7 @@ pub const ServerState = union(enum) {
         offset: u64 = 0,
         id: []const u8,
         replicationState: ReplicationState,
+        options: Options,
     };
 
     const SlaveState = struct {
@@ -75,7 +76,12 @@ pub const Role = enum {
     slave,
 };
 
-pub const Options = struct { port: u16, master: ?Host = null };
+pub const Options = struct {
+    port: u16,
+    master: ?Host = null,
+    dir: ?[]const u8 = null,
+    dbfilename: ?[]const u8 = null,
+};
 
 pub const Host = struct {
     host: []const u8,

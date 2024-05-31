@@ -58,6 +58,7 @@ pub fn next(self: *Self) anyerror!?Value {
     const before = self.reader.bytes_read;
     const v = ParserUnmanaged.parse(self.reader.reader().any(), self.arena.allocator()) catch |err| {
         if (err == error.EndOfStream) return null;
+        //if (err == error.ConnectionResetByPeer) return null;
 
         return err;
     };

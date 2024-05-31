@@ -13,6 +13,11 @@ pub const Command = union(enum) {
     ReplConf: ReplConf,
     PSync: PSync,
     FullResync: FullResync,
+    GetConfig: GetConfig,
+
+    pub const GetConfig = struct {
+        key: []const u8,
+    };
 
     pub const FullResync = struct {
         offset: isize,
@@ -100,6 +105,14 @@ pub const Command = union(enum) {
 
                     // TODO: other cases
                     return Command{ .ReplConf = ReplConf{ .ListeningPort = v[2].String } };
+                }
+
+                if (std.ascii.eqlIgnoreCase(v[0].String, "CONFIG")) {
+                    if (std.ascii.eqlIgnoreCase(v[1].String, "GET")) {
+                        return Command{ .GetConfig = .{ .key = v[2].String } };
+                    }
+
+                    return null;
                 }
 
                 if (std.ascii.eqlIgnoreCase(v[0].String, "PSYNC")) {

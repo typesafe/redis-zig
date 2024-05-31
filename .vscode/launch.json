@@ -7,7 +7,17 @@
       "request": "launch",
       "cwd": "${workspaceRoot}",
       "program": "zig",
-      "args": ["run", "./src/main.zig", "--", "--port", "6379"]
+      "args": [
+        "run",
+        "./src/main.zig",
+        "--",
+        "--port",
+        "6379",
+        "--dir",
+        "./",
+        "--dbfilename",
+        "redis.rdb"
+      ]
     },
     {
       "name": "slave",

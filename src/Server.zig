@@ -45,6 +45,7 @@ pub fn run(self: *Self) !void {
         .Slave = .{},
     } else ServerState{
         .Master = .{
+            .options = self.options,
             .id = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", // TODO: generate
             .replicationState = Types.ReplicationState.init(self.allocator),
         },
@@ -129,6 +130,15 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                             }
                         },
                         else => try std.fmt.format(stream.writer(), "+OK\r\n", .{}),
+                    }
+                },
+                .GetConfig => |gc| {
+                    if (std.ascii.eqlIgnoreCase(gc.key, "dir")) {
+                        try Serializer.write(stream.writer().any(), .{ gc.key, state.Master.options.dir.? });
+                    } else if (std.ascii.eqlIgnoreCase(gc.key, "dbfilename")) {
+                        try Serializer.write(stream.writer().any(), .{ gc.key, state.Master.options.dbfilename.? });
+                    } else {
+                        try std.fmt.format(stream.writer().any(), "+OK\r\n", .{});
                     }
                 },
                 .PSync => |_| {

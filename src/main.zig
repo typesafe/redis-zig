@@ -55,6 +55,12 @@ fn parse_argv() Types.Options {
                 .host = host,
                 .port = if (port) |p| (std.fmt.parseInt(u16, p, 10) catch DEFAULT_PORT) else DEFAULT_PORT,
             };
+        } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--dir") and i + 1 < std.os.argv.len) {
+            const a = std.os.argv[i + 1];
+            options.dir = a[0..std.mem.len(a)];
+        } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--dbfilename") and i + 1 < std.os.argv.len) {
+            const a = std.os.argv[i + 1];
+            options.dbfilename = a[0..std.mem.len(a)];
         }
     }
 
