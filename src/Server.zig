@@ -14,6 +14,7 @@ const Host = Types.Host;
 const Role = Types.Role;
 
 const Client = @import("./Client.zig");
+const Database = @import("./persistence/Database.zig");
 
 const Self = @This();
 
@@ -40,6 +41,21 @@ pub fn deinit(self: Self) void {
 pub fn run(self: *Self) !void {
     var store = Store.init(self.allocator);
     defer store.deinit();
+
+    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const rel = try std.fmt.bufPrint(&buf, "{s}/{s}", .{ self.options.dir.?, self.options.dbfilename.? });
+
+    const path = try std.fs.cwd().realpath(rel, &buf);
+
+    var db = try Database.fromFile(path);
+    defer db.deinit();
+
+    var it = try db.getEntryIterator();
+
+    while (it.next()) |kvp| {
+        std.debug.print("{s}", .{kvp});
+        //store.kv.set(kvp, kvp, null);
+    }
 
     var state = if (self.options.master) |_| ServerState{
         .Slave = .{},
