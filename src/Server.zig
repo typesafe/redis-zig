@@ -125,6 +125,14 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                         try std.fmt.format(stream.writer(), "${}\r\n{s}\r\n", .{ k.len, k.* });
                     }
                 },
+                .Type => |k| {
+                    const v = try store.kv.get(k);
+                    if (v) |val| {
+                        try std.fmt.format(stream.writer(), "${}\r\n{s}\r\n", .{ val.getRedisTypeName().len, val.getRedisTypeName() });
+                    } else {
+                        try std.fmt.format(stream.writer(), "+none\r\n", .{});
+                    }
+                },
                 .Set => |v| {
                     try store.kv.set(v.key, v.value, v.exp);
                     if (state.* == .Master) {

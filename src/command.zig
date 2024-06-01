@@ -10,6 +10,7 @@ pub const Command = union(enum) {
     Info: struct { arg: []const u8 },
     Get: []const u8,
     Keys: []const u8,
+    Type: []const u8,
     Set: struct { key: []const u8, value: Value, exp: ?i64 },
     ReplConf: ReplConf,
     PSync: PSync,
@@ -91,6 +92,10 @@ pub const Command = union(enum) {
 
                 if (std.ascii.eqlIgnoreCase(v[0].String, "KEYS")) {
                     return Command{ .Keys = v[1].String };
+                }
+
+                if (std.ascii.eqlIgnoreCase(v[0].String, "TYPE")) {
+                    return Command{ .Type = v[1].String };
                 }
 
                 if (std.ascii.eqlIgnoreCase(v[0].String, "REPLCONF")) {

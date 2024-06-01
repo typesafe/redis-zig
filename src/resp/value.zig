@@ -28,6 +28,16 @@ pub const Value = union(enum) {
         };
     }
 
+    pub fn getRedisTypeName(value: @This()) []const u8 {
+        //string, list, set, zset, hash and stream
+        return switch (value) {
+            .List => "list",
+            .String => "string",
+
+            else => unreachable,
+        };
+    }
+
     pub fn copy(value: Value, allocator: std.mem.Allocator) !Value {
         return switch (value) {
             .List => |list| {

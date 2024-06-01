@@ -8,6 +8,7 @@ pub const KeyValueStore = struct {
 
     map: std.StringHashMap(Entry),
     arena: std.heap.ArenaAllocator,
+    mutex: std.Thread.Mutex,
 
     pub const Entry = struct { value: Value, exp: ?i64 };
 
@@ -16,6 +17,7 @@ pub const KeyValueStore = struct {
         return KeyValueStore{
             .arena = arena,
             .map = std.StringHashMap(Entry).init(allocator),
+            .mutex = std.Thread.Mutex{},
         };
     }
 
@@ -28,6 +30,9 @@ pub const KeyValueStore = struct {
         const k = try self.arena.allocator().alloc(u8, key.len);
         @memcpy(k, key);
 
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
         try self.map.put(
             k,
             .{ .value = try value.copy(self.arena.allocator()), .exp = exp },
@@ -35,6 +40,9 @@ pub const KeyValueStore = struct {
     }
 
     pub fn get(self: *Self, key: []const u8) !?Value {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
         const r = self.map.get(key);
         if (r) |entry| {
             if (entry.exp) |exp| {
