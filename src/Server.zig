@@ -130,7 +130,11 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                     if (v) |val| {
                         try std.fmt.format(stream.writer(), "${}\r\n{s}\r\n", .{ val.getRedisTypeName().len, val.getRedisTypeName() });
                     } else {
-                        try std.fmt.format(stream.writer(), "+none\r\n", .{});
+                        if (store.streams.contains(k)) {
+                            try std.fmt.format(stream.writer(), "+stream\r\n", .{});
+                        } else {
+                            try std.fmt.format(stream.writer(), "+none\r\n", .{});
+                        }
                     }
                 },
                 .Set => |v| {
@@ -140,6 +144,14 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                         try state.Master.replicationState.broadcast(cmd);
                         state.Master.offset += iter.lastCommandBytes;
                     }
+                },
+                .Xadd => |xadd| {
+                    const id = try allocator.alloc(u8, xadd.stream.len);
+                    @memcpy(id, xadd.stream);
+                    const res = try store.streams.getOrPut(id);
+                    _ = res;
+                    //const entryId = try res.value_ptr.add(xadd.id, xadd.props);
+                    try std.fmt.format(stream.writer(), "+{s}\r\n", .{xadd.id});
                 },
                 .Get => |k| {
                     const v = try store.kv.get(k);

@@ -16,6 +16,13 @@ pub const Command = union(enum) {
     PSync: PSync,
     FullResync: FullResync,
     GetConfig: GetConfig,
+    Xadd: Xadd,
+
+    pub const Xadd = struct {
+        stream: []const u8,
+        id: []const u8,
+        props: []const Value,
+    };
 
     pub const GetConfig = struct {
         key: []const u8,
@@ -56,6 +63,10 @@ pub const Command = union(enum) {
                 return null;
             },
             .List => |v| {
+                if (std.ascii.eqlIgnoreCase(v[0].String, "XADD")) {
+                    return Command{ .Xadd = .{ .stream = v[1].String, .id = v[2].String, .props = v[3..] } };
+                }
+
                 if (v.len == 2 and std.ascii.eqlIgnoreCase(v[0].String, "ECHO")) {
                     return Command{ .Echo = v[1].String };
                 }

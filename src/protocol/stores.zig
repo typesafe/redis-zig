@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Value = @import("../resp/value.zig").Value;
+const Stream = @import("../streaming/Stream.zig");
 
 pub const KeyValueStore = struct {
     const Self = @This();
@@ -62,9 +63,13 @@ pub const Store = struct {
     const Self = @This();
 
     kv: KeyValueStore,
+    streams: std.StringHashMap(Stream),
 
     pub fn init(allocator: std.mem.Allocator) Self {
-        return Self{ .kv = KeyValueStore.init(allocator) };
+        return Self{
+            .kv = KeyValueStore.init(allocator),
+            .streams = std.StringHashMap(Stream).init(allocator),
+        };
     }
 
     pub fn deinit(self: *Self) void {
