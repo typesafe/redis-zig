@@ -41,42 +41,78 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn getEntryIterator(self: *Self) !EntryIterator {
-    const it = .{ .database = self.* };
-
     try self.seekDatabaseOffset();
 
+    const it = .{ .database = self.* };
     return it;
 }
 
-test "get entries from empty rdb" {
-    const empty_rdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
+test "get entries from rdb with single key" {
+    const rdb = "524544495330303033FA0972656469732D76657205372E322E30FA0A72656469732D62697473C040FE00FB010000097261737062657272790A73747261776265727279FF8BEB06989DD158B60A";
     var buffer: [88]u8 = undefined;
-    const content = try std.fmt.hexToBytes(&buffer, empty_rdb);
+    const content = try std.fmt.hexToBytes(&buffer, rdb);
     var db = fromBuffer(content);
 
     var it = try db.getEntryIterator();
 
     while (it.next()) |k| {
-        std.debug.print("{b}\n", .{k});
+        std.debug.print("{s}\n", .{k[0].String});
     }
 }
+
+test "get entries from rdb with exp key" {
+    const rdb = "524544495330303033FA0972656469732D76657205372E322E30FA0A72656469732D62697473C040FE00FB0505FC000C288AC70100000004706561720470656172FC009CEF127E0100000009726173706265727279056170706C65FC000C288AC701000000066F72616E6765056D616E676FFC000C288AC701000000056170706C650970696E656170706C65FC000C288AC7010000000A7374726177626572727909626C75656265727279FFE77A32A0300EE3DC0A";
+    var buffer: [362]u8 = undefined;
+    const content = try std.fmt.hexToBytes(&buffer, rdb);
+    var db = fromBuffer(content);
+
+    var it = try db.getEntryIterator();
+
+    while (it.next()) |k| {
+        std.debug.print("{s}\n", .{k[0].String});
+    }
+}
+
+pub const KeyValuePair = struct { StringEncodedValue, StringEncodedValue, ?i64 };
 
 pub const EntryIterator = struct {
     database: Self,
 
-    pub fn next(self: *@This()) ?[]const u8 {
+    pub fn next(self: *@This()) ?KeyValuePair {
         if (self.database.offset >= self.database.buffer.len) {
             return null;
         }
 
         const op = self.database.peekOpCode();
         return switch (op) {
-            // TODO: read key value pairs
+            OpCode.Unknown => self.database.readKeyValuePair(null),
+            OpCode.ExpireTimeSeconds => self.database.readKeyValuePair(self.database.readExpiration(i32)),
+            OpCode.ExpireTimeMs => self.database.readKeyValuePair(self.database.readExpiration(i64)),
             OpCode.EOF => null,
             else => null,
         };
     }
 };
+
+fn readKeyValuePair(self: *Self, expiry: ?i64) KeyValuePair {
+    const vtype = self.readValueType();
+    const key = self.readField();
+    const val = switch (vtype) {
+        .String => self.readField(),
+        // TODO: other types
+        else => self.readField(),
+    };
+
+    return .{ key, val, expiry };
+}
+
+fn readExpiration(self: *Self, comptime T: type) T {
+    // when this is called the opcode is not yet consumed...
+    _ = self.readOpCode();
+    const v: T = std.mem.readVarInt(T, self.buffer[self.offset .. self.offset + @sizeOf(T)], .little);
+    self.offset += @sizeOf(T);
+    return v;
+}
 
 /// Sets the offset to the first database in the file.
 fn seekDatabaseOffset(self: *Self) !void {
@@ -96,7 +132,16 @@ fn seekDatabaseOffset(self: *Self) !void {
                 _ = self.readField(); // key
                 _ = self.readField(); // value
             },
-            OpCode.DatabaseSelector => break, // we've reached the DB
+            OpCode.DatabaseSelector => {
+                // we've reached the DB
+                _ = self.readField(); // number
+                if (self.peekOpCode() == OpCode.ResizeDB) {
+                    _ = self.readOpCode();
+                    _ = self.readLength();
+                    _ = self.readLength();
+                }
+                break;
+            },
             else => {},
         }
     }
@@ -105,13 +150,15 @@ fn seekDatabaseOffset(self: *Self) !void {
 /// Expects the current offset to point to the next op code.
 /// Increments the offset.
 fn readOpCode(self: *Self) OpCode {
-    const op = OpCode.parse(self.buffer[self.offset]);
-    self.offset += 1;
-    return op;
+    return OpCode.parse(self.readByte());
 }
 
 fn peekOpCode(self: *Self) OpCode {
     return OpCode.parse(self.buffer[self.offset]);
+}
+
+fn readValueType(self: *Self) ValueType {
+    return ValueType.parse(self.readByte());
 }
 
 fn readByte(self: *Self) u8 {
@@ -158,6 +205,20 @@ fn readField(self: *Self) StringEncodedValue {
     return .{ .String = self.readBytes(len) };
 }
 
+fn readLength(self: *Self) usize {
+    const byte = self.readByte();
+    const flags = byte & 0b11000000;
+    const payload = byte & 0b00111111;
+
+    switch (flags) {
+        0b00000000 => return std.mem.readInt(u32, &.{ 0, 0, 0, payload }, .big),
+        0b01000000 => return std.mem.readInt(u32, &.{ 0, 0, payload, self.readByte() }, .big),
+        0b10000000 => return std.mem.readInt(u32, &.{ self.readByte(), self.readByte(), self.readByte(), self.readByte() }, .big),
+
+        else => unreachable,
+    }
+}
+
 const OpCode = enum {
     Auxiliary,
     DatabaseSelector,
@@ -169,14 +230,13 @@ const OpCode = enum {
 
     fn parse(b: u8) OpCode {
         return switch (b) {
-            0xFA => OpCode.Auxiliary,
-
-            0xFE => OpCode.DatabaseSelector,
-            0xFF => OpCode.EOF,
-            0xFC => OpCode.ExpireTimeMs,
-            0xFD => OpCode.ExpireTimeSeconds,
-            0xFB => OpCode.ResizeDB,
-            else => OpCode.Unknown,
+            0xFA => .Auxiliary,
+            0xFE => .DatabaseSelector,
+            0xFF => .EOF,
+            0xFC => .ExpireTimeMs,
+            0xFD => .ExpireTimeSeconds,
+            0xFB => .ResizeDB,
+            else => .Unknown,
         };
     }
 };
@@ -193,4 +253,22 @@ const ValueType = enum {
     ZipListSortedSet,
     ZipListHash,
     QuicklistList,
+    Unknown,
+
+    fn parse(b: u8) ValueType {
+        return switch (b) {
+            0x00 => .String,
+            0x01 => .List,
+            0x02 => .Set,
+            0x03 => .SortedSet,
+            0x04 => .Hash,
+            0x09 => .Zipmap,
+            0x0A => .Ziplist,
+            0x0B => .IntSet,
+            0x0C => .ZipListSortedSet,
+            0x0D => .ZipListHash,
+            0x0E => .QuicklistList,
+            else => .Unknown,
+        };
+    }
 };

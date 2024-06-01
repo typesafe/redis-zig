@@ -4,6 +4,7 @@ const stdout = std.io.getStdOut().writer();
 
 const CommandIterator = @import("./CommandIterator.zig");
 const ParserUnmanaged = @import("./resp/ParserUnmanaged.zig");
+const Value = @import("./resp/value.zig").Value;
 const Command = @import("./command.zig").Command;
 const Serializer = @import("./resp/Serializer.zig");
 const Store = @import("./protocol/stores.zig").Store;
@@ -38,24 +39,30 @@ pub fn deinit(self: Self) void {
     (&l).deinit();
 }
 
-pub fn run(self: *Self) !void {
-    var store = Store.init(self.allocator);
-    defer store.deinit();
+fn loadFile(self: *Self, store: *Store) !void {
+    if (self.options.dir == null or self.options.dbfilename == null) {
+        return;
+    }
 
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const rel = try std.fmt.bufPrint(&buf, "{s}/{s}", .{ self.options.dir.?, self.options.dbfilename.? });
 
     const path = try std.fs.cwd().realpath(rel, &buf);
-
     var db = try Database.fromFile(path);
-    defer db.deinit();
 
     var it = try db.getEntryIterator();
 
     while (it.next()) |kvp| {
-        std.debug.print("{s}", .{kvp});
-        //store.kv.set(kvp, kvp, null);
+        std.debug.print("{s}", .{kvp[0].String});
+        try store.kv.set(kvp[0].String, Value{ .String = kvp[1].String }, kvp[2]);
     }
+}
+
+pub fn run(self: *Self) !void {
+    var store = Store.init(self.allocator);
+    defer store.deinit();
+
+    loadFile(self, &store) catch {};
 
     var state = if (self.options.master) |_| ServerState{
         .Slave = .{},
@@ -109,6 +116,14 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                 },
                 .Echo => |v| {
                     try std.fmt.format(stream.writer(), "${}\r\n{s}\r\n", .{ v.len, v });
+                },
+                .Keys => |_| {
+                    try std.fmt.format(stream.writer(), "*{}\r\n", .{store.kv.map.count()});
+                    var it = store.kv.map.keyIterator();
+
+                    while (it.next()) |k| {
+                        try std.fmt.format(stream.writer(), "${}\r\n{s}\r\n", .{ k.len, k.* });
+                    }
                 },
                 .Set => |v| {
                     try store.kv.set(v.key, v.value, v.exp);
