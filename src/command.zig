@@ -89,7 +89,7 @@ pub const Command = union(enum) {
                         offset += 2;
                     }
 
-                    const block: ?usize = if (std.ascii.eqlIgnoreCase(v[offset].String, "COUNT")) std.fmt.parseInt(usize, v[offset + 1].String, 10) catch 0 else null;
+                    const block: ?usize = if (std.ascii.eqlIgnoreCase(v[offset].String, "BLOCK")) std.fmt.parseInt(usize, v[offset + 1].String, 10) catch 0 else null;
                     if (block != null) {
                         offset += 2;
                     }

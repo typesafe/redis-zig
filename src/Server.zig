@@ -161,23 +161,58 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                     }
                 },
                 .Xread => |xread| {
-                    try stream.writer().print("*{}\r\n", .{xread.streams.len});
-                    for (xread.streams, 0..) |seletctedStream, i| {
-                        try stream.writer().print("*{}\r\n", .{2});
-                        try stream.writer().print("{}", .{seletctedStream});
+                    var entriesAvailable = false;
 
-                        if (store.streams.getPtr(seletctedStream.String)) |str| {
-                            var it = try str.xrange(xread.ids[i].String, "+", true);
-                            try stream.writer().print("*{}\r\n", .{it.count});
-                            while (it.next()) |e| {
-                                var buf: [32]u8 = undefined;
-                                const r = try std.fmt.bufPrint(&buf, "{}-{}", .{ e.id.id, e.id.seq });
+                    if (xread.block) |ms| {
+                        var event = std.Thread.ResetEvent{};
 
-                                try Serializer.write(stream.writer().any(), .{ r, e.props });
+                        for (xread.streams, 0..) |selectedStream, i| {
+                            if (store.streams.getPtr(selectedStream.String)) |str| {
+                                var it = try str.xrange(xread.ids[i].String, "+", true);
+                                defer it.deinit();
+                                if (it.count > 0) {
+                                    entriesAvailable = true;
+                                    break;
+                                } else {
+                                    try str.notify(&event);
+                                }
                             }
-                        } else {
-                            _ = try stream.write("$-1\r\n");
                         }
+
+                        if (!entriesAvailable) {
+                            std.debug.print("{}", .{event.isSet()});
+                            const err = event.timedWait(ms * 1000_000);
+                            if (err != error.Timeout) {
+                                entriesAvailable = true;
+                            } else {
+                                entriesAvailable = false;
+                            }
+                        }
+                    } else {
+                        entriesAvailable = true; // force sync call
+                    }
+
+                    if (entriesAvailable) {
+                        try stream.writer().print("*{}\r\n", .{xread.streams.len});
+                        for (xread.streams, 0..) |selectedStream, i| {
+                            try stream.writer().print("*{}\r\n", .{2});
+                            try stream.writer().print("{}", .{selectedStream});
+
+                            if (store.streams.getPtr(selectedStream.String)) |str| {
+                                var it = try str.xrange(xread.ids[i].String, "+", true);
+                                try stream.writer().print("*{}\r\n", .{it.count});
+                                while (it.next()) |e| {
+                                    var buf: [32]u8 = undefined;
+                                    const r = try std.fmt.bufPrint(&buf, "{}-{}", .{ e.id.id, e.id.seq });
+
+                                    try Serializer.write(stream.writer().any(), .{ r, e.props });
+                                }
+                            } else {
+                                _ = try stream.write("$-1\r\n");
+                            }
+                        }
+                    } else {
+                        _ = try stream.write("$-1\r\n");
                     }
                 },
                 .Xadd => |xadd| {

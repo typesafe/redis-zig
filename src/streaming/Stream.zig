@@ -8,6 +8,7 @@ id: []const u8,
 entries: std.ArrayList(Entry),
 allocator: std.mem.Allocator,
 mutex: std.Thread.Mutex,
+events: std.AutoHashMap(*std.Thread.ResetEvent, void),
 
 pub const Entry = struct { id: EntryId, props: []const Value };
 pub const EntryId = struct { id: u64, seq: usize };
@@ -37,6 +38,7 @@ pub fn init(allocator: std.mem.Allocator) Self {
         .entries = std.ArrayList(Entry).init(allocator),
         .allocator = allocator,
         .mutex = std.Thread.Mutex{},
+        .events = std.AutoHashMap(*std.Thread.ResetEvent, void).init(allocator),
     };
 }
 
@@ -62,6 +64,11 @@ pub const EntryIterator = struct {
     }
 };
 
+pub fn notify(self: *Self, event: *std.Thread.ResetEvent) !void {
+    // TODO: (dedicated) mutex lock
+    try self.events.put(event, {});
+}
+
 /// Returns an interator over the matching entries.
 /// Locks the stream until `iterator.deinit` is called.
 pub fn xrange(self: *Self, from: []const u8, to: []const u8, read: bool) !EntryIterator {
@@ -78,18 +85,18 @@ pub fn xrange(self: *Self, from: []const u8, to: []const u8, read: bool) !EntryI
             const sq = if (s.seq) |seq| seq else 0;
             for (self.entries.items[0..endIndex], 0..) |e, i| {
                 if (read) {
-                    if (e.id.id > id or e.id.id == id and e.id.seq > sq) {
-                        startIndex = i;
-                        break;
-                    }
-                } else {
-                    if (e.id.id == id and e.id.seq == sq) {
-                        startIndex = i;
-                        break;
-                    }
+                    startIndex = i;
+                }
+
+                if (e.id.id == id and e.id.seq == sq) {
+                    startIndex = i;
+                    break;
                 }
             }
         }
+    }
+    if (read) {
+        startIndex += 1;
     }
 
     if (!std.mem.eql(u8, to, "+")) {
@@ -150,5 +157,13 @@ pub fn add(self: *Self, id: EntryIdInput, props: []const Value) !EntryId {
     }
     const e = try self.entries.addOne();
     e.* = .{ .id = newEntryId, .props = entryProps };
+
+    var it = self.events.keyIterator();
+    while (it.next()) |ev| {
+        ev.*.set();
+    }
+
+    self.events.clearAndFree();
+
     return newEntryId;
 }
