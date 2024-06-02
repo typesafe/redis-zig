@@ -180,26 +180,25 @@ const StringEncodedValue = union(enum) {
     U32: u32,
 };
 
+const LengthEncodingPrefix = packed struct { payload: u6, flags: u2 };
+
 fn readField(self: *Self) StringEncodedValue {
-    const byte = self.readByte();
-    const flags = byte & 0b11000000;
-    const payload = byte & 0b00111111;
+    const byte: LengthEncodingPrefix = @bitCast(self.readByte());
 
     var len: usize = undefined;
 
-    switch (flags) {
-        0b00000000 => len = std.mem.readInt(u32, &.{ 0, 0, 0, payload }, .big),
-        0b01000000 => len = std.mem.readInt(u32, &.{ 0, 0, payload, self.readByte() }, .big),
-        0b10000000 => len = std.mem.readInt(u32, &.{ self.readByte(), self.readByte(), self.readByte(), self.readByte() }, .big),
-        0b11000000 => {
-            switch (payload) {
+    switch (byte.flags) {
+        0b00 => len = std.mem.readInt(u32, &.{ 0, 0, 0, byte.payload }, .big),
+        0b01 => len = std.mem.readInt(u32, &.{ 0, 0, byte.payload, self.readByte() }, .big),
+        0b10 => len = std.mem.readInt(u32, &.{ self.readByte(), self.readByte(), self.readByte(), self.readByte() }, .big),
+        0b11 => {
+            switch (byte.payload) {
                 0 => return .{ .U8 = self.readByte() },
                 1 => return .{ .U16 = std.mem.readInt(u16, &.{ self.readByte(), self.readByte() }, .big) },
                 2 => return .{ .U32 = std.mem.readInt(u32, &.{ self.readByte(), self.readByte(), self.readByte(), self.readByte() }, .big) },
                 else => @panic("LZF not supported (yet)"), // TODO
             }
         },
-        else => unreachable,
     }
 
     return .{ .String = self.readBytes(len) };
