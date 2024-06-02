@@ -148,7 +148,7 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                 },
                 .Xrange => |xrange| {
                     if (store.streams.getPtr(xrange.stream)) |str| {
-                        var it = try str.xrange(xrange.from, xrange.to);
+                        var it = try str.xrange(xrange.from, xrange.to, false);
                         try stream.writer().print("*{}\r\n", .{it.count});
                         while (it.next()) |e| {
                             var buf: [32]u8 = undefined;
@@ -158,6 +158,26 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                         }
                     } else {
                         _ = try stream.write("$-1\r\n");
+                    }
+                },
+                .Xread => |xread| {
+                    try stream.writer().print("*{}\r\n", .{xread.streams.len});
+                    for (xread.streams, 0..) |seletctedStream, i| {
+                        try stream.writer().print("*{}\r\n", .{2});
+                        try stream.writer().print("{}", .{seletctedStream});
+
+                        if (store.streams.getPtr(seletctedStream.String)) |str| {
+                            var it = try str.xrange(xread.ids[i].String, "+", true);
+                            try stream.writer().print("*{}\r\n", .{it.count});
+                            while (it.next()) |e| {
+                                var buf: [32]u8 = undefined;
+                                const r = try std.fmt.bufPrint(&buf, "{}-{}", .{ e.id.id, e.id.seq });
+
+                                try Serializer.write(stream.writer().any(), .{ r, e.props });
+                            }
+                        } else {
+                            _ = try stream.write("$-1\r\n");
+                        }
                     }
                 },
                 .Xadd => |xadd| {

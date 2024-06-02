@@ -18,6 +18,14 @@ pub const Command = union(enum) {
     GetConfig: GetConfig,
     Xadd: Xadd,
     Xrange: Xrange,
+    Xread: Xread,
+
+    pub const Xread = struct {
+        count: ?usize,
+        block: ?u64,
+        streams: []const Value,
+        ids: []const Value,
+    };
 
     pub const Xrange = struct {
         stream: []const u8,
@@ -72,6 +80,36 @@ pub const Command = union(enum) {
             .List => |v| {
                 if (std.ascii.eqlIgnoreCase(v[0].String, "XADD")) {
                     return Command{ .Xadd = .{ .stream = v[1].String, .id = v[2].String, .props = v[3..] } };
+                }
+
+                if (std.ascii.eqlIgnoreCase(v[0].String, "XREAD")) {
+                    var offset: usize = 1;
+                    const count: ?usize = if (std.ascii.eqlIgnoreCase(v[1].String, "COUNT")) std.fmt.parseInt(usize, v[2].String, 10) catch 0 else null;
+                    if (count != null) {
+                        offset += 2;
+                    }
+
+                    const block: ?usize = if (std.ascii.eqlIgnoreCase(v[offset].String, "COUNT")) std.fmt.parseInt(usize, v[offset + 1].String, 10) catch 0 else null;
+                    if (block != null) {
+                        offset += 2;
+                    }
+
+                    offset += 1; // STREAMS
+
+                    // XREAD COUNT ccc STREAMS id1 id2 key1 key2
+                    // ^0    ^1    ^2  ^3      ^4  ^5  ^6   ^7
+                    // len = 8, offset = 4 -> stream slice = [4..6] & key slice = [6..8] -> (len - offset = 4) / 2 = 2
+
+                    const n = (v.len - offset) / 2;
+
+                    return Command{
+                        .Xread = .{
+                            .count = count,
+                            .block = block,
+                            .streams = v[offset .. offset + n],
+                            .ids = v[offset + n .. v.len],
+                        },
+                    };
                 }
 
                 if (std.ascii.eqlIgnoreCase(v[0].String, "XRANGE")) {

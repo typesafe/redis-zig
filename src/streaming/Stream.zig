@@ -64,7 +64,7 @@ pub const EntryIterator = struct {
 
 /// Returns an interator over the matching entries.
 /// Locks the stream until `iterator.deinit` is called.
-pub fn xrange(self: *Self, from: []const u8, to: []const u8) !EntryIterator {
+pub fn xrange(self: *Self, from: []const u8, to: []const u8, read: bool) !EntryIterator {
     self.mutex.lock();
 
     var startIndex: usize = 0;
@@ -77,9 +77,16 @@ pub fn xrange(self: *Self, from: []const u8, to: []const u8) !EntryIterator {
         if (s.id) |id| {
             const sq = if (s.seq) |seq| seq else 0;
             for (self.entries.items[0..endIndex], 0..) |e, i| {
-                if (e.id.id == id and e.id.seq == sq) {
-                    startIndex = i;
-                    break;
+                if (read) {
+                    if (e.id.id > id or e.id.id == id and e.id.seq > sq) {
+                        startIndex = i;
+                        break;
+                    }
+                } else {
+                    if (e.id.id == id and e.id.seq == sq) {
+                        startIndex = i;
+                        break;
+                    }
                 }
             }
         }
@@ -105,11 +112,11 @@ pub fn xrange(self: *Self, from: []const u8, to: []const u8) !EntryIterator {
             i -= 1;
         }
     }
-
+    const count = endIndex - startIndex;
     return EntryIterator{
         .stream = self,
         .count = endIndex - startIndex,
-        .slice = self.entries.items[startIndex..endIndex],
+        .slice = if (count > 0) self.entries.items[startIndex..endIndex] else self.entries.items[0..0],
     };
 }
 
