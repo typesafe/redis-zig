@@ -8,6 +8,7 @@ const Value = @import("./resp/value.zig").Value;
 const Command = @import("./command.zig").Command;
 const Serializer = @import("./resp/Serializer.zig");
 const Store = @import("./protocol/stores.zig").Store;
+const Stream = @import("./streaming/Stream.zig");
 const Types = @import("./types.zig");
 const Options = Types.Options;
 const ServerState = Types.ServerState;
@@ -149,9 +150,30 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                     const id = try allocator.alloc(u8, xadd.stream.len);
                     @memcpy(id, xadd.stream);
                     const res = try store.streams.getOrPut(id);
-                    _ = res;
-                    //const entryId = try res.value_ptr.add(xadd.id, xadd.props);
-                    try std.fmt.format(stream.writer(), "+{s}\r\n", .{xadd.id});
+
+                    if (!res.found_existing) {
+                        res.key_ptr.* = id;
+                        res.value_ptr.* = Stream.init(allocator);
+                    }
+
+                    if (res.value_ptr.add(try Stream.EntryIdInput.parse(xadd.id), xadd.props)) |entryId| {
+                        if (state.* == .Master) {
+                            var buf: [32]u8 = undefined;
+                            const r = try std.fmt.bufPrint(&buf, "{}-{}", .{ entryId.id, entryId.seq });
+
+                            try std.fmt.format(stream.writer(), "${}\r\n{s}\r\n", .{ r.len, r });
+
+                            // TODO
+                            // try state.Master.replicationState.broadcastRaw("");
+                            state.Master.offset += iter.lastCommandBytes;
+                        }
+                    } else |err| {
+                        switch (err) {
+                            error.IdMustBeGreaterThanZero => try std.fmt.format(stream.writer(), "-ERR The ID specified in XADD must be greater than 0-0\r\n", .{}),
+                            error.IdLessThenLatest => try std.fmt.format(stream.writer(), "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n", .{}),
+                            else => try std.fmt.format(stream.writer(), "-ERR Unknown error\r\n", .{}),
+                        }
+                    }
                 },
                 .Get => |k| {
                     const v = try store.kv.get(k);
