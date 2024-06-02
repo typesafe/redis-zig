@@ -40,6 +40,79 @@ pub fn init(allocator: std.mem.Allocator) Self {
     };
 }
 
+pub const EntryIterator = struct {
+    stream: *Self,
+    count: usize,
+    slice: []const Entry,
+    offset: usize = 0,
+
+    pub fn next(self: *EntryIterator) ?Entry {
+        if (self.offset < self.slice.len) {
+            const ret = self.slice[self.offset];
+            self.offset += 1;
+            return ret;
+        }
+
+        self.stream.mutex.unlock();
+        return null;
+    }
+
+    pub fn deinit(self: EntryIterator) void {
+        self.stream.mutex.unlock();
+    }
+};
+
+/// Returns an interator over the matching entries.
+/// Locks the stream until `iterator.deinit` is called.
+pub fn xrange(self: *Self, from: []const u8, to: []const u8) !EntryIterator {
+    self.mutex.lock();
+
+    var startIndex: usize = 0;
+    var endIndex = self.entries.items.len;
+
+    // TODO: improve this with a binary search
+
+    if (!std.mem.eql(u8, from, "-")) {
+        const s = try EntryIdInput.parse(from);
+        if (s.id) |id| {
+            const sq = if (s.seq) |seq| seq else 0;
+            for (self.entries.items[0..endIndex], 0..) |e, i| {
+                if (e.id.id == id and e.id.seq == sq) {
+                    startIndex = i;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!std.mem.eql(u8, to, "+")) {
+        const e = try EntryIdInput.parse(to);
+
+        var i = endIndex;
+        while (i > startIndex) {
+            const entry = self.entries.items[i - 1];
+            if (entry.id.id == e.id) {
+                if (e.seq != null) {
+                    if (entry.id.seq == e.seq) {
+                        endIndex = i;
+                        break;
+                    }
+                } else {
+                    endIndex = i;
+                    break;
+                }
+            }
+            i -= 1;
+        }
+    }
+
+    return EntryIterator{
+        .stream = self,
+        .count = endIndex - startIndex,
+        .slice = self.entries.items[startIndex..endIndex],
+    };
+}
+
 pub fn add(self: *Self, id: EntryIdInput, props: []const Value) !EntryId {
     self.mutex.lock();
     defer self.mutex.unlock();

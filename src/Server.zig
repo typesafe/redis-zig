@@ -146,6 +146,20 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                         state.Master.offset += iter.lastCommandBytes;
                     }
                 },
+                .Xrange => |xrange| {
+                    if (store.streams.getPtr(xrange.stream)) |str| {
+                        var it = try str.xrange(xrange.from, xrange.to);
+                        try stream.writer().print("*{}\r\n", .{it.count});
+                        while (it.next()) |e| {
+                            var buf: [32]u8 = undefined;
+                            const r = try std.fmt.bufPrint(&buf, "{}-{}", .{ e.id.id, e.id.seq });
+
+                            try Serializer.write(stream.writer().any(), .{ r, e.props });
+                        }
+                    } else {
+                        _ = try stream.write("$-1\r\n");
+                    }
+                },
                 .Xadd => |xadd| {
                     const id = try allocator.alloc(u8, xadd.stream.len);
                     @memcpy(id, xadd.stream);

@@ -17,6 +17,13 @@ pub const Command = union(enum) {
     FullResync: FullResync,
     GetConfig: GetConfig,
     Xadd: Xadd,
+    Xrange: Xrange,
+
+    pub const Xrange = struct {
+        stream: []const u8,
+        from: []const u8,
+        to: []const u8,
+    };
 
     pub const Xadd = struct {
         stream: []const u8,
@@ -65,6 +72,10 @@ pub const Command = union(enum) {
             .List => |v| {
                 if (std.ascii.eqlIgnoreCase(v[0].String, "XADD")) {
                     return Command{ .Xadd = .{ .stream = v[1].String, .id = v[2].String, .props = v[3..] } };
+                }
+
+                if (std.ascii.eqlIgnoreCase(v[0].String, "XRANGE")) {
+                    return Command{ .Xrange = .{ .stream = v[1].String, .from = v[2].String, .to = v[3].String } };
                 }
 
                 if (v.len == 2 and std.ascii.eqlIgnoreCase(v[0].String, "ECHO")) {
