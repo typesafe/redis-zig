@@ -181,11 +181,16 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
 
                         if (!entriesAvailable) {
                             std.debug.print("{}", .{event.isSet()});
-                            const err = event.timedWait(ms * 1000_000);
-                            if (err != error.Timeout) {
+                            if (ms == 0) {
+                                event.wait();
                                 entriesAvailable = true;
                             } else {
-                                entriesAvailable = false;
+                                const err = event.timedWait(ms * 1000_000);
+                                if (err != error.Timeout) {
+                                    entriesAvailable = true;
+                                } else {
+                                    entriesAvailable = false;
+                                }
                             }
                         }
                     } else {
