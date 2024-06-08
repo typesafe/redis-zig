@@ -163,13 +163,31 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                 .Xread => |xread| {
                     var entriesAvailable = false;
 
+                    var fromIds = std.ArrayList(Value).init(allocator);
+
+                    for (xread.ids) |id| {
+                        (try fromIds.addOne()).* = id;
+                    }
+
                     if (xread.block) |ms| {
                         var event = std.Thread.ResetEvent{};
 
                         for (xread.streams, 0..) |selectedStream, i| {
                             if (store.streams.getPtr(selectedStream.String)) |str| {
-                                var it = try str.xrange(xread.ids[i].String, "+", true);
+                                var it = try str.xrange(fromIds.items[i].String, "+", true);
                                 defer it.deinit();
+
+                                // make sure we snapshot the current value
+                                if (std.mem.eql(u8, fromIds.items[i].String, "$")) {
+                                    fromIds.items[i] = if (str.entries.items.len > 0) blk: {
+                                        var buf = try std.ArrayList(u8).initCapacity(allocator, 32);
+                                        _ = try buf.addManyAsSlice(32);
+                                        const res = try std.fmt.bufPrint(buf.items, "{}-{}", .{ str.entries.items[str.entries.items.len - 1].id.id, str.entries.items[str.entries.items.len - 1].id.seq });
+
+                                        break :blk .{ .String = res };
+                                    } else .{ .String = "0-0" };
+                                }
+
                                 if (it.count > 0) {
                                     entriesAvailable = true;
                                     break;
@@ -204,7 +222,7 @@ fn handle_client(stream: net.Stream, allocator: std.mem.Allocator, s: *Store, st
                             try stream.writer().print("{}", .{selectedStream});
 
                             if (store.streams.getPtr(selectedStream.String)) |str| {
-                                var it = try str.xrange(xread.ids[i].String, "+", true);
+                                var it = try str.xrange(fromIds.items[i].String, "+", true);
                                 try stream.writer().print("*{}\r\n", .{it.count});
                                 while (it.next()) |e| {
                                     var buf: [32]u8 = undefined;

@@ -98,7 +98,9 @@ pub fn xrange(self: *Self, from: []const u8, to: []const u8, read: bool) !EntryI
 
     // TODO: improve this with a binary search
 
-    if (!std.mem.eql(u8, from, "-")) {
+    if (std.mem.eql(u8, from, "$")) {
+        startIndex = self.entries.items.len;
+    } else if (!std.mem.eql(u8, from, "-")) {
         const s = try EntryIdInput.parse(from);
         if (s.id) |id| {
             const sq = if (s.seq) |seq| seq else 0;
