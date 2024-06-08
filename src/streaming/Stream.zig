@@ -11,7 +11,26 @@ mutex: std.Thread.Mutex,
 events: std.AutoHashMap(*std.Thread.ResetEvent, void),
 
 pub const Entry = struct { id: EntryId, props: []const Value };
-pub const EntryId = struct { id: u64, seq: usize };
+pub const EntryId = struct {
+    id: u64,
+    seq: usize,
+
+    pub fn compare(self: EntryId, id: u64, seq: usize) i8 {
+        if (self.id < id) {
+            return -1;
+        } else if (self.id > id) {
+            return -1;
+        } else {
+            if (self.seq < seq) {
+                return -1;
+            } else if (self.seq > seq) {
+                return 1;
+            }
+        }
+
+        return 0;
+    }
+};
 pub const EntryIdInput = struct {
     id: ?u64,
     seq: ?usize,
@@ -86,6 +105,14 @@ pub fn xrange(self: *Self, from: []const u8, to: []const u8, read: bool) !EntryI
             for (self.entries.items[0..endIndex], 0..) |e, i| {
                 if (read) {
                     startIndex = i;
+                    const comp = e.id.compare(id, sq);
+                    if (comp == 0) {
+                        startIndex += 1;
+                        break;
+                    }
+                    if (comp > 0) {
+                        break;
+                    }
                 }
 
                 if (e.id.id == id and e.id.seq == sq) {
@@ -94,9 +121,6 @@ pub fn xrange(self: *Self, from: []const u8, to: []const u8, read: bool) !EntryI
                 }
             }
         }
-    }
-    if (read) {
-        startIndex += 1;
     }
 
     if (!std.mem.eql(u8, to, "+")) {
